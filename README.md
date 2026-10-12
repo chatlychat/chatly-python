@@ -59,7 +59,7 @@ if "conversations:write" not in me["scopes"]:
 ```python
 client = chatly.ChatlyClient(
     api_key=os.environ["CHATLY_API_KEY"],
-    api_url="https://api.chatlychat.com",   # the default; override for self-hosted
+    api_url="https://api.chatlychat.com",   # the default; another environment, or a test server
     timeout=15.0,                           # seconds per attempt
     retry=chatly.RetryPolicy(max_attempts=5),
 )
@@ -68,7 +68,7 @@ client = chatly.ChatlyClient(
 | Argument | Default | Notes |
 | --- | --- | --- |
 | `api_key` | — | Required. An empty key raises at construction, not at the first call. |
-| `api_url` | `https://api.chatlychat.com` | Only a self-hosted install should change this. |
+| `api_url` | `https://api.chatlychat.com` | Point it at another Chatly environment, or at a test server in your suite. |
 | `timeout` | `15.0` | Seconds **per attempt**, not for the whole call. |
 | `retry` | `RetryPolicy()` | 3 attempts, jittered backoff, honours `Retry-After`. `chatly.NO_RETRIES` disables it. |
 | `transport` | `UrllibTransport()` | Inject your own for tests or an unusual network. |
@@ -233,7 +233,7 @@ origin is admitted** — not that restriction is unnecessary.
 
 | Method | Endpoint |
 | --- | --- |
-| `plans()` | `GET /v1/billing/plans` — `[]` on a self-hosted install is normal |
+| `plans()` | `GET /v1/billing/plans` — `[]` when the deployment has no Stripe prices configured |
 | `usage(event_type, from_=, to=)` | `GET /v1/billing/usage` |
 
 `event_type` is required: `conversation.opened`, `message.sent.agent`,
@@ -296,7 +296,7 @@ Every HTTP error carries:
 | `code` | the API's `code` field |
 | `message` | the API's `message` field |
 | `details` | the API's `details` object, `{}` if absent |
-| `request_id` | the `x-request-id` response header — **expect `None`**; the platform does not currently send that header, and it is read for forward compatibility and for proxies that add one |
+| `request_id` | the `x-request-id` response header — the API mints one per request and sends it on every response, errors included, so quote it in a support ticket |
 | `body` | the raw response text, verbatim |
 
 The full hierarchy, all rooted at `ChatlyError`:
