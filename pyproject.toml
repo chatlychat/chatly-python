@@ -1,0 +1,93 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chatly"
+dynamic = ["version"]
+description = "Official Python SDK for Chatly — live chat, conversations, contacts, tickets, knowledge base, webhooks."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Chatly" }]
+maintainers = [{ name = "Chatly" }]
+keywords = [
+  "chatly",
+  "live chat",
+  "chat",
+  "messaging",
+  "customer support",
+  "helpdesk",
+  "tickets",
+  "webhooks",
+  "sdk",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Communications :: Chat",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+
+# Deliberately empty, and a feature rather than an omission: a customer
+# should not inherit our dependency tree to send a message. HTTP is
+# `urllib.request`, signing is `hmac`/`hashlib`, ids are `uuid` — all
+# standard library. See CONTRACT.md §9.
+dependencies = []
+
+[project.urls]
+Homepage = "https://chatlychat.com"
+Documentation = "https://chatlychat.com/docs"
+Repository = "https://github.com/chatlychat/chatly"
+Issues = "https://github.com/chatlychat/chatly/issues"
+Changelog = "https://github.com/chatlychat/chatly/blob/main/packages/sdk-python/CHANGELOG.md"
+
+# The version lives in `_version.py` and is read from there, so the package
+# metadata and the `User-Agent` header can never disagree.
+[tool.hatch.version]
+path = "src/chatly/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chatly"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src/chatly",
+  "/tests",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/LICENSE",
+  "/pyproject.toml",
+]
+
+[tool.mypy]
+# The package supports 3.9 (`requires-python` above, and the suite is run
+# against a real 3.9 interpreter), but mypy 2.x refuses `python_version =
+# "3.9"` outright -- it no longer supports that target. So the type check
+# runs at 3.10 and 3.9 compatibility is proven by running the tests there
+# instead: every annotation in this package is either a `typing` alias or
+# behind `from __future__ import annotations`, which is what 3.9 needs.
+python_version = "3.10"
+files = ["src/chatly"]
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+# The `except Exception` in the webhook verifier and the transport are
+# deliberate (a verifier that raises is an accepted webhook); nothing here
+# needs an escape from strict mode.
+disallow_any_explicit = false
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+strict = false
