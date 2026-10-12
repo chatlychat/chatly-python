@@ -89,11 +89,24 @@ class Item6AutoPagination(unittest.TestCase):
         self.assertIsNone(page.total, "'not reported' must not read as zero")
         self.assertIsNone(page.has_more)
 
-    def test_a_bare_array_becomes_one_page(self) -> None:
-        """Nine key-accessible routes answer with a top-level array."""
-        client, transport, _ = build_client([json_response([{"id": "m1"}, {"id": "m2"}])])
-        page = client.macros.list()
-        self.assertEqual([m["id"] for m in page.items], ["m1", "m2"])
+    def test_a_bare_array_becomes_one_page_on_the_untyped_path(self) -> None:
+        """``client.paginate`` tolerates an array, because it cannot know.
+
+        The escape hatch is pointed at routes this SDK has no method for, and
+        a fair number of them are pagination-exempt and answer with an array.
+        Folding that into a single cursor-less page is the useful behaviour
+        there.
+
+        It is deliberately NOT how a typed method handles it: a method knows
+        which shape its route returns, so it returns a list or a ``Page``
+        accordingly. Worth being explicit, because this tolerance has a cost
+        — it is why this SDK did not *notice* when the manifest briefly
+        marked ``GET /v1/macros`` as paged. It degraded quietly instead of
+        telling anyone.
+        """
+        client, transport, _ = build_client([json_response([{"id": "x1"}, {"id": "x2"}])])
+        page = client.paginate("/v1/some/exempt/collection")
+        self.assertEqual([row["id"] for row in page.items], ["x1", "x2"])
         self.assertIsNone(page.next_cursor)
         self.assertEqual(transport.count, 1)
 

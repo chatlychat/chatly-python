@@ -15,6 +15,7 @@ from chatly import (
     ChatlyClient,
     HTTPResponse,
     InvalidArgumentError,
+    Page,
     ResponseDecodeError,
 )
 from chatly._transport import build_query, encode_path
@@ -144,6 +145,130 @@ class ObjectShapeGuard(unittest.TestCase):
         payload = {"id": "c1", "email": "a@example.com", "unknownFutureField": 1}
         client, _, _ = build_client([json_response(payload)])
         self.assertEqual(client.contacts.get("c1"), payload)
+
+
+class ResponseShapePerRoute(unittest.TestCase):
+    """Each method, fed the shape its route really returns.
+
+    This is the guard against the failure that got past two other SDKs. A
+    fake transport that answers every route with ``{"items": [], "nextCursor":
+    null}`` makes a client agree with whatever the manifest claims: when
+    ``GET /v1/macros`` was briefly marked ``paged: true``, the .NET and Rust
+    clients raised a decode error on a real call while their suites stayed
+    green, because the fake never sent them the bare array the route actually
+    sends.
+
+    So the fixtures here are keyed to the route, not to the manifest: a
+    bare-array route is fed a bare array, a paged route is fed an envelope,
+    and the assertion is on the Python type the caller receives.
+    """
+
+    #: Routes that answer with a top-level JSON array. The caller gets a list.
+    BARE_ARRAY = [
+        ("conversations", "generated_replies", lambda ns: ns.generated_replies("c1")),
+        ("conversations", "scheduled_messages", lambda ns: ns.scheduled_messages("c1")),
+        ("tickets", "comments", lambda ns: ns.comments("t1")),
+        ("tickets", "for_conversation", lambda ns: ns.for_conversation("c1")),
+        ("tickets", "queues", lambda ns: ns.queues()),
+        ("macros", "list", lambda ns: ns.list()),
+        ("kb", "collections", lambda ns: ns.collections()),
+        ("channels", "list", lambda ns: ns.list()),
+        ("billing", "plans", lambda ns: ns.plans()),
+        ("reports", "agents", lambda ns: ns.agents()),
+        ("reports", "conversations_by_day", lambda ns: ns.conversations_by_day()),
+        ("workspace", "labels", lambda ns: ns.labels()),
+        ("workspace", "inboxes", lambda ns: ns.inboxes()),
+        ("workspace", "team_members", lambda ns: ns.team_members("t1")),
+    ]
+
+    #: Routes that answer with `{items, nextCursor, ...}`. The caller gets a Page.
+    PAGED = [
+        ("contacts", "list", lambda ns: ns.list()),
+        ("conversations", "list", lambda ns: ns.list()),
+        ("conversations", "messages", lambda ns: ns.messages("c1")),
+        ("tickets", "list", lambda ns: ns.list()),
+        ("kb", "articles", lambda ns: ns.articles()),
+        ("events", "list", lambda ns: ns.list()),
+        ("webhooks", "deliveries", lambda ns: ns.deliveries()),
+    ]
+
+    def test_bare_array_routes_return_a_plain_list(self) -> None:
+        rows = [{"id": "a"}, {"id": "b"}]
+        for ns_name, method_name, invoke in self.BARE_ARRAY:
+            with self.subTest(method=f"{ns_name}.{method_name}"):
+                client, _, _ = build_client([json_response(rows)])
+                result = invoke(getattr(client, ns_name))
+                self.assertIsInstance(
+                    result,
+                    list,
+                    f"{ns_name}.{method_name} returned {type(result).__name__}; this "
+                    "route answers with a bare array",
+                )
+                self.assertEqual([row["id"] for row in result], ["a", "b"])
+
+    def test_paged_routes_return_a_page(self) -> None:
+        envelope = {"items": [{"id": "a"}], "nextCursor": "n2"}
+        for ns_name, method_name, invoke in self.PAGED:
+            with self.subTest(method=f"{ns_name}.{method_name}"):
+                client, _, _ = build_client([json_response(envelope)])
+                result = invoke(getattr(client, ns_name))
+                self.assertIsInstance(
+                    result,
+                    Page,
+                    f"{ns_name}.{method_name} returned {type(result).__name__}; this "
+                    "route is cursor-paginated",
+                )
+                self.assertEqual(result.next_cursor, "n2")
+
+    def test_the_two_sets_agree_with_the_manifest(self) -> None:
+        """The paged set here must be exactly what surface.json marks paged.
+
+        Without this, the lists above are just another hand-maintained table
+        that can drift from the spec in the same direction as the bug.
+        """
+        import json
+        import pathlib as _pathlib
+
+        spec_path = (
+            _pathlib.Path(__file__).resolve().parents[2] / "sdk-spec" / "surface.json"
+        )
+        if not spec_path.exists():
+            self.skipTest("surface.json not present (running outside the monorepo)")
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+        manifest_paged = {
+            (e["ns"], e["name"]) for e in spec["entries"] if e.get("paged")
+        }
+        mine_paged = {(ns, name) for ns, name, _ in self.PAGED}
+        self.assertEqual(mine_paged, manifest_paged)
+
+        # And nothing may be in both lists.
+        mine_bare = {(ns, name) for ns, name, _ in self.BARE_ARRAY}
+        self.assertEqual(mine_bare & mine_paged, set())
+
+    def test_every_paged_route_has_a_walker_and_no_bare_array_route_does(self) -> None:
+        """An ``iter_*`` on a cursor-less route would be a promise we cannot keep."""
+        client, _, _ = build_client()
+        walkers = {
+            ("contacts", "list"): "iter_list",
+            ("conversations", "list"): "iter_list",
+            ("conversations", "messages"): "iter_messages",
+            ("tickets", "list"): "iter_list",
+            ("kb", "articles"): "iter_articles",
+            ("events", "list"): "iter_list",
+            ("webhooks", "deliveries"): "iter_deliveries",
+        }
+        for (ns_name, method_name), walker in walkers.items():
+            with self.subTest(method=f"{ns_name}.{method_name}"):
+                self.assertTrue(
+                    callable(getattr(getattr(client, ns_name), walker, None)),
+                    f"{ns_name}.{walker} is missing",
+                )
+
+        self.assertFalse(
+            hasattr(client.macros, "iter_list"),
+            "GET /v1/macros is pagination-exempt — an iter_list here would "
+            "advertise a cursor the route does not have",
+        )
 
 
 class EscapeHatch(unittest.TestCase):

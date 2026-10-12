@@ -270,7 +270,19 @@ class SurfaceParity(unittest.TestCase):
             self.skipTest("surface.json not present")
         spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
         paged = [(e["ns"], e["name"]) for e in spec["entries"] if e.get("paged")]
-        self.assertGreaterEqual(len(paged), 8, "the paged set shrank; is the spec parsed?")
+        # Floor 7, lowered from 8 on 2026-10-12 for a known reason, not as a
+        # cover-up: `macros.list` was removed from the paged set because
+        # `GET /v1/macros` is `@PaginationExempt` and answers with a bare
+        # array, so there was never a cursor to walk. The floor still exists
+        # to catch the other failure — a manifest that stops parsing and
+        # silently shrinks the audited set to nothing. If this number drops
+        # again, check that the spec parses before you lower it.
+        self.assertGreaterEqual(
+            len(paged),
+            7,
+            "the paged set shrank below the floor; confirm surface.json parsed "
+            "before concluding a route legitimately stopped paging",
+        )
         client, _, _ = build_client()
         for ns, name in paged:
             with self.subTest(method=f"{ns}.{name}"):
@@ -290,7 +302,6 @@ class SurfaceParity(unittest.TestCase):
             ("conversations", "iter_list"),
             ("conversations", "iter_messages"),
             ("tickets", "iter_list"),
-            ("macros", "iter_list"),
             ("kb", "iter_articles"),
             ("events", "iter_list"),
             ("webhooks", "iter_deliveries"),

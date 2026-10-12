@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterator, Mapping, Optional, Sequence
+from typing import Any, List, Mapping, Optional, Sequence
 
 from .._transport import encode_path
-from ..pagination import Page
-from ._base import JsonDict, Resource
+from ._base import JsonDict, Resource, as_list
 
 
 class Macros(Resource):
@@ -25,7 +24,7 @@ class Macros(Resource):
         query: Optional[str] = None,
         language: Optional[str] = None,
         **params: Any,
-    ) -> Page[JsonDict]:
+    ) -> List[JsonDict]:
         """Macros, ranked by language match, then use count, then recency.
 
         Args:
@@ -37,29 +36,21 @@ class Macros(Resource):
                 than filters: a macro in another language still comes back,
                 lower down.
 
-        This route is **not actually cursor-paginated.** It is
-        pagination-exempt, takes no ``cursor`` or ``limit``, and the service
-        hard-caps the result at 200 rows. The response is a bare JSON array,
-        which this method wraps in a single :class:`~chatly.pagination.Page`
-        with ``next_cursor`` of ``None`` — so the shape matches the other
-        list methods and :meth:`iter_list` terminates after one call. A
-        workspace with more than 200 macros silently sees only 200; narrow
-        with ``query`` or ``scope`` rather than paging.
+        Returns a **plain list**, not a
+        :class:`~chatly.pagination.Page`. Despite being a collection, this
+        route is pagination-exempt: it takes no ``cursor`` and no ``limit``,
+        and answers with a bare JSON array that the service caps at 200 rows
+        ordered by usage rank. There is no cursor to walk, so there is no
+        ``iter_list`` here — a workspace with more than 200 macros sees only
+        200, and the way to narrow that is ``query`` or ``scope``, not
+        paging.
         """
-        return self._page(
-            "/v1/macros",
-            {"scope": scope, "team": team, "query": query, "language": language, **params},
+        return as_list(
+            self._get(
+                "/v1/macros",
+                {"scope": scope, "team": team, "query": query, "language": language, **params},
+            )
         )
-
-    def iter_list(self, **params: Any) -> Iterator[JsonDict]:
-        """Every macro the filters match, as a generator.
-
-        Terminates after one request — see :meth:`list` for why. It exists so
-        that ``iter_*`` is available on every list in this SDK and a caller
-        does not have to remember which routes page.
-        """
-        params.pop("cursor", None)
-        return self._walk("/v1/macros", params)
 
     def create(
         self,

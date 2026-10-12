@@ -4,7 +4,7 @@ The official Python SDK for **Chatly** — a live-chat and customer-messaging
 platform. Your visitors chat from a widget on your site (or email, WhatsApp,
 SMS, Telegram and a dozen other channels); your team answers from an agent
 inbox; an AI layer drafts and sometimes resolves. This package is how your
-*backend* talks to that platform: sync your users in as contacts, read and
+_backend_ talks to that platform: sync your users in as contacts, read and
 reply to conversations, read tickets and reports, and verify the webhooks
 Chatly sends you.
 
@@ -35,9 +35,8 @@ for conversation in client.conversations.iter_list(status="open"):
     client.conversations.send(conversation["id"], "Thanks — looking into it.")
 ```
 
-> [!WARNING]
-> **Never ship your API key to a browser or a mobile app.** A `ck_…` key is a
-> bearer credential for the *whole workspace* — every contact, every
+> [!WARNING] > **Never ship your API key to a browser or a mobile app.** A `ck_…` key is a
+> bearer credential for the _whole workspace_ — every contact, every
 > conversation, every report. Anyone who reads it can act as your entire
 > company. Keep it in server-side environment variables or a secret manager.
 > The browser-side SDK is [`@chatlychat/sdk-js`](https://www.npmjs.com/package/@chatlychat/sdk-js),
@@ -65,14 +64,14 @@ client = chatly.ChatlyClient(
 )
 ```
 
-| Argument | Default | Notes |
-| --- | --- | --- |
-| `api_key` | — | Required. An empty key raises at construction, not at the first call. |
-| `api_url` | `https://api.chatlychat.com` | Point it at another Chatly environment, or at a test server in your suite. |
-| `timeout` | `15.0` | Seconds **per attempt**, not for the whole call. |
-| `retry` | `RetryPolicy()` | 3 attempts, jittered backoff, honours `Retry-After`. `chatly.NO_RETRIES` disables it. |
-| `transport` | `UrllibTransport()` | Inject your own for tests or an unusual network. |
-| `sleep` | `time.sleep` | The function used to wait between retries. |
+| Argument    | Default                      | Notes                                                                                 |
+| ----------- | ---------------------------- | ------------------------------------------------------------------------------------- |
+| `api_key`   | —                            | Required. An empty key raises at construction, not at the first call.                 |
+| `api_url`   | `https://api.chatlychat.com` | Point it at another Chatly environment, or at a test server in your suite.            |
+| `timeout`   | `15.0`                       | Seconds **per attempt**, not for the whole call.                                      |
+| `retry`     | `RetryPolicy()`              | 3 attempts, jittered backoff, honours `Retry-After`. `chatly.NO_RETRIES` disables it. |
+| `transport` | `UrllibTransport()`          | Inject your own for tests or an unusual network.                                      |
+| `sleep`     | `time.sleep`                 | The function used to wait between retries.                                            |
 
 The client holds no per-request state, so sharing one instance across threads
 is fine.
@@ -85,75 +84,80 @@ response is decoded JSON (a `dict`, a `list`, or a `Page` — see
 
 ### `client.whoami()`
 
-| Method | Endpoint | Returns |
-| --- | --- | --- |
+| Method     | Endpoint                  | Returns                     |
+| ---------- | ------------------------- | --------------------------- |
 | `whoami()` | `GET /v1/api-keys/whoami` | `{"workspaceId", "scopes"}` |
 
 ### `client.contacts` — the people your agents talk to
 
-| Method | Endpoint |
-| --- | --- |
-| `list(cursor=, limit=, blocked=)` | `GET /v1/contacts` |
-| `iter_list(...)` | auto-paginates the above |
-| `get(contact_id)` | `GET /v1/contacts/{id}` |
-| `upsert(external_id=, email=, phone=, name=, avatar_url=, locale=, timezone=, attributes=)` | `POST /v1/contacts` |
-| `bulk_upsert(contacts)` | `POST /v1/contacts/bulk` |
-| `merge(contact_id, merged_id)` | `POST /v1/contacts/{id}/merge` |
-| `add_tags(contact_id, tag)` | `POST /v1/contacts/{id}/tags` |
-| `remove_tag(contact_id, tag)` | `DELETE /v1/contacts/{id}/tags/{tag}` |
-| `unsubscribe(contact_id, unsubscribed=True, reason=)` | `POST /v1/contacts/{id}/unsubscribe` |
-| `journey(contact_id, cursor=, limit=, days=)` | `GET /v1/contacts/{id}/journey` |
+| Method                                                                                      | Endpoint                              |
+| ------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `list(cursor=, limit=, blocked=)`                                                           | `GET /v1/contacts`                    |
+| `iter_list(...)`                                                                            | auto-paginates the above              |
+| `get(contact_id)`                                                                           | `GET /v1/contacts/{id}`               |
+| `upsert(external_id=, email=, phone=, name=, avatar_url=, locale=, timezone=, attributes=)` | `POST /v1/contacts`                   |
+| `bulk_upsert(contacts)`                                                                     | `POST /v1/contacts/bulk`              |
+| `merge(contact_id, merged_id)`                                                              | `POST /v1/contacts/{id}/merge`        |
+| `add_tags(contact_id, tag)`                                                                 | `POST /v1/contacts/{id}/tags`         |
+| `remove_tag(contact_id, tag)`                                                               | `DELETE /v1/contacts/{id}/tags/{tag}` |
+| `unsubscribe(contact_id, unsubscribed=True, reason=)`                                       | `POST /v1/contacts/{id}/unsubscribe`  |
+| `journey(contact_id, cursor=, limit=, days=)`                                               | `GET /v1/contacts/{id}/journey`       |
 
-`merge` absorbs `merged_id` *into* `contact_id` — the path is the survivor.
+`merge` absorbs `merged_id` _into_ `contact_id` — the path is the survivor.
 
 ### `client.conversations` — threads and messages
 
-| Method | Endpoint |
-| --- | --- |
-| `list(cursor=, limit=, status=, channel=, tags=, priority=, assignee=, team=, segment=, brand=, sort=, unread=, mentioned=, unattended=, sla=, unattended_for=, from_=, to=, created_from=, created_to=, filter=)` | `GET /v1/conversations` |
-| `iter_list(...)` | auto-paginates the above |
-| `get(conversation_id)` | `GET /v1/conversations/{id}` |
-| `messages(conversation_id, cursor=, limit=)` | `GET /v1/conversations/{id}/messages` |
-| `iter_messages(conversation_id, ...)` | auto-paginates the above |
-| `send(conversation_id, body, kind=, attachments=, metadata=, blocks=, body_html=, canvas=, client_ref=, reply_to_message_id=)` | `POST /v1/conversations/{id}/messages` |
-| `unattended(cursor=, limit=, assignee=, team=, channel=, older_than_minutes=)` | `GET /v1/conversations/unattended` |
-| `agent_handling(conversation_id)` | `GET /v1/conversations/{id}/agent-handling` |
-| `set_agent_handling(conversation_id, state, reason=)` | `PUT /v1/conversations/{id}/agent-handling` |
-| `generated_replies(conversation_id)` | `GET /v1/conversations/{id}/generated-replies` |
-| `generate_reply(conversation_id, body, based_on_message_id=, proposed_by_label=)` | `POST /v1/conversations/{id}/generated-replies` |
-| `scheduled_messages(conversation_id)` | `GET /v1/conversations/{id}/scheduled-messages` |
-| `schedule_message(conversation_id, body, send_at)` | `POST /v1/conversations/{id}/scheduled-messages` |
-| `cancel_scheduled(scheduled_id)` | `DELETE /v1/conversations/scheduled-messages/{scheduled_id}` |
+| Method                                                                                                                                                                                                             | Endpoint                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| `list(cursor=, limit=, status=, channel=, tags=, priority=, assignee=, team=, segment=, brand=, sort=, unread=, mentioned=, unattended=, sla=, unattended_for=, from_=, to=, created_from=, created_to=, filter=)` | `GET /v1/conversations`                                      |
+| `iter_list(...)`                                                                                                                                                                                                   | auto-paginates the above                                     |
+| `get(conversation_id)`                                                                                                                                                                                             | `GET /v1/conversations/{id}`                                 |
+| `messages(conversation_id, cursor=, limit=)`                                                                                                                                                                       | `GET /v1/conversations/{id}/messages`                        |
+| `iter_messages(conversation_id, ...)`                                                                                                                                                                              | auto-paginates the above                                     |
+| `send(conversation_id, body, kind=, attachments=, metadata=, blocks=, body_html=, canvas=, client_ref=, reply_to_message_id=)`                                                                                     | `POST /v1/conversations/{id}/messages`                       |
+| `unattended(cursor=, limit=, assignee=, team=, channel=, older_than_minutes=)`                                                                                                                                     | `GET /v1/conversations/unattended`                           |
+| `agent_handling(conversation_id)`                                                                                                                                                                                  | `GET /v1/conversations/{id}/agent-handling`                  |
+| `set_agent_handling(conversation_id, state, reason=)`                                                                                                                                                              | `PUT /v1/conversations/{id}/agent-handling`                  |
+| `generated_replies(conversation_id)`                                                                                                                                                                               | `GET /v1/conversations/{id}/generated-replies`               |
+| `generate_reply(conversation_id, body, based_on_message_id=, proposed_by_label=)`                                                                                                                                  | `POST /v1/conversations/{id}/generated-replies`              |
+| `scheduled_messages(conversation_id)`                                                                                                                                                                              | `GET /v1/conversations/{id}/scheduled-messages`              |
+| `schedule_message(conversation_id, body, send_at)`                                                                                                                                                                 | `POST /v1/conversations/{id}/scheduled-messages`             |
+| `cancel_scheduled(scheduled_id)`                                                                                                                                                                                   | `DELETE /v1/conversations/scheduled-messages/{scheduled_id}` |
 
 `from_` is sent as `from`; `from` is a Python keyword. `set_agent_handling`
 requires a key linked to a machine user — see its docstring.
 
 ### `client.tickets`
 
-| Method | Endpoint |
-| --- | --- |
-| `list(cursor=, limit=, sort=, fields=, filter=)` | `GET /v1/tickets` |
-| `iter_list(...)` | auto-paginates the above |
-| `comments(ticket_id)` | `GET /v1/tickets/{id}/comments` |
-| `for_conversation(conversation_id)` | `GET /v1/tickets/for-conversation/{conversation_id}` |
-| `queues()` | `GET /v1/tickets/queues` |
-| `merge(ticket_id, loser_id)` | `POST /v1/tickets/{id}/merge` |
-| `split(ticket_id, title, description=, priority=, type=, assignee_user_id=, tags=, conversation_ids=)` | `POST /v1/tickets/{id}/split` |
-| `bulk(ids, action, payload=)` | `POST /v1/tickets/bulk` |
+| Method                                                                                                 | Endpoint                                             |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| `list(cursor=, limit=, sort=, fields=, filter=)`                                                       | `GET /v1/tickets`                                    |
+| `iter_list(...)`                                                                                       | auto-paginates the above                             |
+| `comments(ticket_id)`                                                                                  | `GET /v1/tickets/{id}/comments`                      |
+| `for_conversation(conversation_id)`                                                                    | `GET /v1/tickets/for-conversation/{conversation_id}` |
+| `queues()`                                                                                             | `GET /v1/tickets/queues`                             |
+| `merge(ticket_id, loser_id)`                                                                           | `POST /v1/tickets/{id}/merge`                        |
+| `split(ticket_id, title, description=, priority=, type=, assignee_user_id=, tags=, conversation_ids=)` | `POST /v1/tickets/{id}/split`                        |
+| `bulk(ids, action, payload=)`                                                                          | `POST /v1/tickets/bulk`                              |
 
-There is no `create` and no `add_comment`: those endpoints record *which
-person* acted, so an API key cannot call them. Tickets are normally created
+There is no `create` and no `add_comment`: those endpoints record _which
+person_ acted, so an API key cannot call them. Tickets are normally created
 by the platform from an inbound email or conversation.
 
 ### `client.macros` — saved replies
 
-| Method | Endpoint |
-| --- | --- |
-| `list(scope=, team=, query=, language=)` | `GET /v1/macros` |
-| `iter_list(...)` | one page; this route does not cursor-paginate |
-| `create(name=, scope=, body=, actions=, short_code=, team_id=, language=, tags=)` | `POST /v1/macros` |
-| `update(macro_id, **fields)` | `PATCH /v1/macros/{id}` |
-| `delete(macro_id)` | `DELETE /v1/macros/{id}` — returns `None` (204) |
+| Method                                                                            | Endpoint                                        |
+| --------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `list(scope=, team=, query=, language=)`                                          | `GET /v1/macros` — returns a **list**           |
+| `create(name=, scope=, body=, actions=, short_code=, team_id=, language=, tags=)` | `POST /v1/macros`                               |
+| `update(macro_id, **fields)`                                                      | `PATCH /v1/macros/{id}`                         |
+| `delete(macro_id)`                                                                | `DELETE /v1/macros/{id}` — returns `None` (204) |
+
+`list` is the one collection in this SDK that returns a plain list rather
+than a `Page`, and there is no `iter_list` for it: the route is
+pagination-exempt — no `cursor`, no `limit` — and answers with a bare array
+the server caps at 200 rows, ordered by usage rank. Narrow it with `query`
+or `scope`; there is no cursor to walk.
 
 `update` takes **wire** field names (`shortCode`, `teamId`) so that an
 explicit `None` can reach the server and clear a field, which omitting it
@@ -161,24 +165,24 @@ does not.
 
 ### `client.kb` — help-centre content
 
-| Method | Endpoint |
-| --- | --- |
-| `articles(cursor=, limit=, sort=, fields=, filter=)` | `GET /v1/kb/articles` |
-| `iter_articles(...)` | auto-paginates the above |
-| `article(slug)` | `GET /v1/kb/articles/{slug}` — by **slug**, not id |
-| `collections()` | `GET /v1/kb/collections` |
+| Method                                               | Endpoint                                           |
+| ---------------------------------------------------- | -------------------------------------------------- |
+| `articles(cursor=, limit=, sort=, fields=, filter=)` | `GET /v1/kb/articles`                              |
+| `iter_articles(...)`                                 | auto-paginates the above                           |
+| `article(slug)`                                      | `GET /v1/kb/articles/{slug}` — by **slug**, not id |
+| `collections()`                                      | `GET /v1/kb/collections`                           |
 
 `articles` has no `status` or `q` parameter; filter instead —
-`filter="status:eq:published"`. To search article *text*, use
+`filter="status:eq:published"`. To search article _text_, use
 `client.search.kb(...)`.
 
 ### `client.search`
 
-| Method | Endpoint |
-| --- | --- |
-| `query(q, kinds=, from_=, to=, channel_id=, assignee_user_id=, status=, limit=, cursor=)` | `GET /v1/search` |
-| `kb(q, ...)` | the same route narrowed to `kinds="kb"` |
-| `iter_query(q, ...)` | auto-paginates the hits |
+| Method                                                                                    | Endpoint                                |
+| ----------------------------------------------------------------------------------------- | --------------------------------------- |
+| `query(q, kinds=, from_=, to=, channel_id=, assignee_user_id=, status=, limit=, cursor=)` | `GET /v1/search`                        |
+| `kb(q, ...)`                                                                              | the same route narrowed to `kinds="kb"` |
+| `iter_query(q, ...)`                                                                      | auto-paginates the hits                 |
 
 `kinds` is one or more of `contact`, `conversation`, `message`, `ticket`,
 `kb`. The response is this route's own envelope: `{"items", "nextCursor",
@@ -186,43 +190,43 @@ does not.
 
 ### `client.events` — the CDP event stream
 
-| Method | Endpoint |
-| --- | --- |
-| `track(contact_id, name, properties=)` | `POST /v1/cdp/events` |
-| `list(contact_id=, cursor=, limit=, sort=, fields=, filter=)` | `GET /v1/cdp/events` |
-| `iter_list(...)` | auto-paginates the above |
+| Method                                                        | Endpoint                 |
+| ------------------------------------------------------------- | ------------------------ |
+| `track(contact_id, name, properties=)`                        | `POST /v1/cdp/events`    |
+| `list(contact_id=, cursor=, limit=, sort=, fields=, filter=)` | `GET /v1/cdp/events`     |
+| `iter_list(...)`                                              | auto-paginates the above |
 
 One event per `track` call — the endpoint takes no batch form.
 
 ### `client.webhooks` — delivery history
 
-| Method | Endpoint |
-| --- | --- |
-| `deliveries(endpoint_id=, status=, cursor=, limit=, sort=, fields=, filter=)` | `GET /v1/webhooks/deliveries` |
-| `iter_deliveries(...)` | auto-paginates the above |
-| `delivery(delivery_id)` | `GET /v1/webhooks/deliveries/{id}` — adds `payload` and `url` |
-| `redeliver(delivery_id)` | `POST /v1/webhooks/deliveries/{id}/redeliver` |
+| Method                                                                        | Endpoint                                                      |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `deliveries(endpoint_id=, status=, cursor=, limit=, sort=, fields=, filter=)` | `GET /v1/webhooks/deliveries`                                 |
+| `iter_deliveries(...)`                                                        | auto-paginates the above                                      |
+| `delivery(delivery_id)`                                                       | `GET /v1/webhooks/deliveries/{id}` — adds `payload` and `url` |
+| `redeliver(delivery_id)`                                                      | `POST /v1/webhooks/deliveries/{id}/redeliver`                 |
 
-`redeliver` *queues* a new attempt; the outcome appears as a new row in
+`redeliver` _queues_ a new attempt; the outcome appears as a new row in
 `deliveries`, not in its own response.
 
 ### `client.reports`
 
-| Method | Endpoint | Window default |
-| --- | --- | --- |
-| `overview(days=)` | `GET /v1/reports/overview` | 7 |
-| `agents(days=)` | `GET /v1/reports/agents` | 7 |
-| `conversations_by_day(days=)` | `GET /v1/reports/conversations-by-day` | **14** |
-| `sla(days=, from_=, to=, group_by=)` | `GET /v1/reports/sla` | 30 |
+| Method                               | Endpoint                               | Window default |
+| ------------------------------------ | -------------------------------------- | -------------- |
+| `overview(days=)`                    | `GET /v1/reports/overview`             | 7              |
+| `agents(days=)`                      | `GET /v1/reports/agents`               | 7              |
+| `conversations_by_day(days=)`        | `GET /v1/reports/conversations-by-day` | **14**         |
+| `sla(days=, from_=, to=, group_by=)` | `GET /v1/reports/sla`                  | 30             |
 
 The four windows differ, so pass `days` explicitly if two of these numbers
 are going to sit next to each other.
 
 ### `client.channels`
 
-| Method | Endpoint |
-| --- | --- |
-| `list()` | `GET /v1/channels` |
+| Method            | Endpoint                |
+| ----------------- | ----------------------- |
+| `list()`          | `GET /v1/channels`      |
 | `get(channel_id)` | `GET /v1/channels/{id}` |
 
 Credential-shaped keys inside `config` come back as the literal string
@@ -231,23 +235,23 @@ origin is admitted** — not that restriction is unnecessary.
 
 ### `client.billing`
 
-| Method | Endpoint |
-| --- | --- |
-| `plans()` | `GET /v1/billing/plans` — `[]` when the deployment has no Stripe prices configured |
-| `usage(event_type, from_=, to=)` | `GET /v1/billing/usage` |
+| Method                           | Endpoint                                                                           |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `plans()`                        | `GET /v1/billing/plans` — `[]` when the deployment has no Stripe prices configured |
+| `usage(event_type, from_=, to=)` | `GET /v1/billing/usage`                                                            |
 
 `event_type` is required: `conversation.opened`, `message.sent.agent`,
 `message.sent.bot` or `ai.tokens`.
 
 ### `client.workspace`
 
-| Method | Endpoint |
-| --- | --- |
-| `settings()` | `GET /v1/workspace/settings` |
-| `labels(usage=)` | `GET /v1/labels` |
-| `inboxes()` | `GET /v1/inboxes` |
+| Method                  | Endpoint                     |
+| ----------------------- | ---------------------------- |
+| `settings()`            | `GET /v1/workspace/settings` |
+| `labels(usage=)`        | `GET /v1/labels`             |
+| `inboxes()`             | `GET /v1/inboxes`            |
 | `team_members(team_id)` | `GET /v1/teams/{id}/members` |
-| `agent_skills()` | `GET /v1/agents/skills` |
+| `agent_skills()`        | `GET /v1/agents/skills`      |
 
 Two of these are narrower than their names suggest:
 
@@ -290,14 +294,14 @@ except chatly.TransportError:
 
 Every HTTP error carries:
 
-| Attribute | From |
-| --- | --- |
-| `status` | the HTTP status |
-| `code` | the API's `code` field |
-| `message` | the API's `message` field |
-| `details` | the API's `details` object, `{}` if absent |
+| Attribute    | From                                                                                                                                                |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`     | the HTTP status                                                                                                                                     |
+| `code`       | the API's `code` field                                                                                                                              |
+| `message`    | the API's `message` field                                                                                                                           |
+| `details`    | the API's `details` object, `{}` if absent                                                                                                          |
 | `request_id` | the `x-request-id` response header — the API mints one per request and sends it on every response, errors included, so quote it in a support ticket |
-| `body` | the raw response text, verbatim |
+| `body`       | the raw response text, verbatim                                                                                                                     |
 
 The full hierarchy, all rooted at `ChatlyError`:
 
@@ -342,7 +346,7 @@ no_retries = chatly.ChatlyClient(api_key=key, retry=chatly.NO_RETRIES)
 ### Idempotency
 
 Every write sends an `Idempotency-Key`, minted fresh per call, so a retry
-inside the SDK can never double-write. To retry *the same logical operation*
+inside the SDK can never double-write. To retry _the same logical operation_
 across process restarts — a job that might be redelivered, a webhook handler
 that might be called twice — pin a key:
 
@@ -351,7 +355,7 @@ key = str(uuid.uuid4())          # store this alongside your job
 client.with_idempotency_key(key).conversations.send(conversation_id, "Hello")
 ```
 
-Same key + same body replays the first response. Same key + a *different*
+Same key + same body replays the first response. Same key + a _different_
 body is a 409:
 
 ```python
@@ -390,10 +394,17 @@ null cursor. If the server ever repeats a cursor it raises `PaginationError`
 rather than looping forever — or quietly truncating, which would be worse,
 because you would believe you had seen every row.
 
-The auto-paginators: `contacts.iter_list`, `conversations.iter_list`,
-`conversations.iter_messages`, `tickets.iter_list`, `macros.iter_list`,
-`kb.iter_articles`, `events.iter_list`, `webhooks.iter_deliveries`,
-`search.iter_query`.
+The auto-paginators, one per cursor-paginated route: `contacts.iter_list`,
+`conversations.iter_list`, `conversations.iter_messages`,
+`tickets.iter_list`, `kb.iter_articles`, `events.iter_list`,
+`webhooks.iter_deliveries`, plus `search.iter_query`.
+
+Methods without one return a plain list, because their route has no cursor:
+`macros.list`, `channels.list`, `billing.plans`, `kb.collections`,
+`reports.agents`, `reports.conversations_by_day`, `workspace.labels`,
+`workspace.inboxes`, `workspace.team_members`, `tickets.queues`,
+`tickets.comments`, `tickets.for_conversation`,
+`conversations.generated_replies` and `conversations.scheduled_messages`.
 
 > Never sort or page on `id`. Ids here are a mix of UUID v4 and v7, so id
 > order is **not** time order. The cursor is the only correct sequence, and
@@ -460,9 +471,9 @@ Then render it into the page for the browser widget:
 ```html
 <script>
   Chatly('identify', {
-    externalId: "{{ user.id }}",
-    userHash: "{{ user_hash }}",
-    email: "{{ user.email }}",
+    externalId: '{{ user.id }}',
+    userHash: '{{ user_hash }}',
+    email: '{{ user.email }}',
   });
 </script>
 ```

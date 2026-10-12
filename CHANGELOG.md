@@ -22,7 +22,7 @@ First release. Implements the cross-language Chatly backend-SDK contract
 - **Typed errors.** `ChatlyError` at the root; `AuthenticationError` (401),
   `PermissionDeniedError` (403), `NotFoundError` (404), `ConflictError`
   (409, with `.is_idempotency_conflict`), `BadRequestError`,
-  `ValidationError` (400 `validation_failed` *and* 422), `RateLimitError`
+  `ValidationError` (400 `validation_failed` _and_ 422), `RateLimitError`
   (429, with `.retry_after`), `ServerError` (5xx), `TransportError` /
   `ChatlyTimeoutError` for failures that never reached a status, plus
   `InvalidArgumentError`, `PaginationError` and `ResponseDecodeError`.
@@ -35,9 +35,13 @@ First release. Implements the cross-language Chatly backend-SDK contract
 - **Idempotency.** A fresh UUID per write by default;
   `client.with_idempotency_key(key)` returns a derived client that pins one.
 - **Pagination.** `Page` for a single page (`items`, `next_cursor`, `total`,
-  `has_more`, `raw`) and an `iter_*` generator per paged list. Lazy, stops on
-  a null cursor, and raises `PaginationError` rather than looping if the
-  server repeats one.
+  `has_more`, `raw`) and an `iter_*` generator for each of the seven
+  cursor-paginated routes. Lazy, stops on a null cursor, and raises
+  `PaginationError` rather than looping if the server repeats one.
+  Pagination-exempt collections — `macros.list`, `channels.list`,
+  `billing.plans` and the rest — return a plain list and have no `iter_*`,
+  because advertising a walker for a route with no cursor is a promise the
+  SDK cannot keep.
 - **`verify_webhook_signature(body, signature_header, secret, tolerance=300)`**
   — HMAC-SHA256 over `<t>.<raw body>`, constant-time, returns `False` for
   every malformed input and never raises.
@@ -69,3 +73,9 @@ First release. Implements the cross-language Chatly backend-SDK contract
 - `reports.sla(group_by=...)` sends snake_case `group_by`, which is what
   that handler reads; a camelCase `groupBy` is ignored and you get daily
   buckets.
+- Response shapes are pinned per route by a test that feeds each method the
+  shape its endpoint really returns — a bare array to the pagination-exempt
+  collections, an envelope to the paged ones — and the paged set is asserted
+  equal to the manifest's. A fake transport that answers every route with a
+  page envelope would otherwise make the suite agree with a wrong manifest
+  rather than with the server.
