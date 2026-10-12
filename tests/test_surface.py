@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import pathlib
 import unittest
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlsplit
 
 import support
@@ -263,57 +263,110 @@ class SurfaceParity(unittest.TestCase):
         derived = client.with_idempotency_key()
         self.assertEqual({n for n in vars(derived) if not n.startswith("_")}, expected)
 
-    def test_every_paged_entry_has_an_auto_paginator(self) -> None:
-        """Contract §5 — both forms, for every list the spec marks paged."""
+    def test_walkers_match_the_manifests_paged_flag_in_BOTH_directions(self) -> None:
+        """Every ``paged`` entry has a walker, and nothing else does.
+
+        Driven entirely off the manifest, which is the point. The Node SDK had
+        no ``messagesAll`` for months: ``conversations.messages`` had been
+        flagged ``paged`` since the manifest was written and nothing connected
+        the flag to the SDK's paginators, so the omission just sat there. A
+        one-directional check would also have let this SDK keep
+        ``macros.iter_list`` after that route turned out to be
+        pagination-exempt — a walker advertising a cursor the route does not
+        have.
+
+        The mapping is mechanical: a paged entry ``(ns, name)`` must be
+        matched by ``client.<ns>.iter_<name>``. Keeping it mechanical is what
+        stops this test from becoming a second hand-maintained list that can
+        drift the same way the first one did.
+        """
         spec_entries = _load_spec()
         if spec_entries is None:
             self.skipTest("surface.json not present")
         spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
-        paged = [(e["ns"], e["name"]) for e in spec["entries"] if e.get("paged")]
-        # Floor 7, lowered from 8 on 2026-10-12 for a known reason, not as a
-        # cover-up: `macros.list` was removed from the paged set because
-        # `GET /v1/macros` is `@PaginationExempt` and answers with a bare
-        # array, so there was never a cursor to walk. The floor still exists
-        # to catch the other failure — a manifest that stops parsing and
-        # silently shrinks the audited set to nothing. If this number drops
-        # again, check that the spec parses before you lower it.
+
+        expected: Dict[str, set] = {}
+        for entry in spec["entries"]:
+            namespace = entry["ns"]
+            expected.setdefault(namespace, set())
+            if entry.get("paged"):
+                expected[namespace].add(f"iter_{entry['name']}")
+
+        total_expected = sum(len(v) for v in expected.values())
+        # Floor, and the history of why it has moved. It was 8, then 7, now 10.
+        #
+        #   8 -> 7   `macros.list` came out: `GET /v1/macros` is
+        #            `@PaginationExempt` and answers with a bare array capped
+        #            at 200 by usage rank, so there was never a cursor.
+        #   7 -> 10  `contacts.journey`, `conversations.unattended` and
+        #            `search.query` went in: all three return
+        #            `{ items, nextCursor }` and had never been flagged.
+        #
+        # Both moves were made on evidence read out of the handlers, not from
+        # this file. The floor stays so that a manifest which silently stops
+        # parsing fails loudly instead of shrinking the audited set to zero —
+        # if this number drops again, check that the spec parses BEFORE you
+        # conclude a route legitimately stopped paging.
         self.assertGreaterEqual(
-            len(paged),
-            7,
+            total_expected,
+            10,
             "the paged set shrank below the floor; confirm surface.json parsed "
             "before concluding a route legitimately stopped paging",
         )
+
         client, _, _ = build_client()
-        for ns, name in paged:
-            with self.subTest(method=f"{ns}.{name}"):
-                namespace = getattr(client, ns)
-                candidates = [f"iter_{name}", "iter_list" if name == "list" else f"iter_{name}"]
-                found = [c for c in candidates if callable(getattr(namespace, c, None))]
-                self.assertTrue(
-                    found, f"{ns}.{name} is paged but has no iter_* generator"
+        for namespace, want in sorted(expected.items()):
+            with self.subTest(namespace=namespace):
+                # `root` is the pseudo-namespace for methods on the client
+                # itself (`whoami`), matching surface.json's own grouping.
+                owner = client if namespace == "root" else getattr(client, namespace, None)
+                self.assertIsNotNone(owner, f"no namespace '{namespace}'")
+                got = {name for name in dir(owner) if name.startswith("iter_")}
+                self.assertEqual(
+                    got,
+                    want,
+                    f"client.{namespace}: walkers {sorted(got)} but the manifest's "
+                    f"paged entries imply {sorted(want)}",
                 )
 
-    def test_the_paginators_are_generators_not_lists(self) -> None:
+    def test_every_walker_is_a_lazy_generator(self) -> None:
+        """A walker must be a generator, not a list built up front.
+
+        Derived from the manifest for the same reason as the test above, and
+        checked by calling it: constructing the generator must issue no
+        request at all.
+        """
         import types
 
-        client, _, _ = build_client()
-        for ns, name in (
-            ("contacts", "iter_list"),
-            ("conversations", "iter_list"),
-            ("conversations", "iter_messages"),
-            ("tickets", "iter_list"),
-            ("kb", "iter_articles"),
-            ("events", "iter_list"),
-            ("webhooks", "iter_deliveries"),
-            ("search", "iter_query"),
-        ):
-            with self.subTest(method=f"{ns}.{name}"):
-                namespace = getattr(client, ns)
-                method = getattr(namespace, name)
-                result = method("ID1") if name == "iter_messages" else (
-                    method("refund") if name == "iter_query" else method()
-                )
+        spec_entries = _load_spec()
+        if spec_entries is None:
+            self.skipTest("surface.json not present")
+        spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+
+        # Throwaway positional arguments for the walkers that need one.
+        positional = {
+            ("conversations", "iter_messages"): ("ID1",),
+            ("contacts", "iter_journey"): ("ID1",),
+            ("search", "iter_query"): ("refund",),
+        }
+
+        checked = 0
+        for entry in spec["entries"]:
+            if not entry.get("paged"):
+                continue
+            ns_name, walker = entry["ns"], f"iter_{entry['name']}"
+            with self.subTest(method=f"{ns_name}.{walker}"):
+                client, transport, _ = build_client()
+                method = getattr(getattr(client, ns_name), walker)
+                result = method(*positional.get((ns_name, walker), ()))
                 self.assertIsInstance(result, types.GeneratorType)
+                self.assertEqual(
+                    transport.count,
+                    0,
+                    f"{ns_name}.{walker} made a request before it was iterated",
+                )
+                checked += 1
+        self.assertGreaterEqual(checked, 10, "the walk-check examined too few entries")
 
 
 if __name__ == "__main__":

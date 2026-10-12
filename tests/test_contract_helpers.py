@@ -110,6 +110,61 @@ class Item6AutoPagination(unittest.TestCase):
         self.assertIsNone(page.next_cursor)
         self.assertEqual(transport.count, 1)
 
+    def test_the_journey_walker_carries_an_iso_cursor_back_unchanged(self) -> None:
+        """This route's cursor is a timestamp, and must be echoed verbatim.
+
+        The server sets ``nextCursor`` to the ``occurredAt`` of the last row
+        it returned (``contact-insights.service.ts``), and the query schema
+        validates it as ``z.string().datetime({ offset: true })``. So it is a
+        real cursor that merely looks parseable: anything this SDK did to
+        "normalise" it — reformatting the offset, dropping milliseconds —
+        would either 400 or silently shift the window.
+        """
+        cursor = "2026-10-01T09:30:00.123+00:00"
+        client, transport, _ = build_client(
+            [
+                json_response(
+                    {
+                        "items": [{"kind": "event", "id": "e1", "occurredAt": cursor}],
+                        "nextCursor": cursor,
+                    }
+                ),
+                json_response({"items": [{"kind": "event", "id": "e2"}], "nextCursor": None}),
+            ]
+        )
+        rows = list(client.contacts.iter_journey("c1", days=30))
+        self.assertEqual([r["id"] for r in rows], ["e1", "e2"])
+        self.assertEqual(transport.count, 2)
+
+        first, second = (dict(parse_qsl(urlsplit(r.url).query)) for r in transport.requests)
+        self.assertNotIn("cursor", first)
+        self.assertEqual(first["days"], "30")
+        # Verbatim, offset and milliseconds intact.
+        self.assertEqual(second["cursor"], cursor)
+        self.assertEqual(second["days"], "30", "the window was dropped on page two")
+
+    def test_the_unattended_walker_walks_and_keeps_its_filters(self) -> None:
+        client, transport, _ = build_client(
+            [
+                json_response({"items": [{"id": "a"}], "nextCursor": "cur2", "total": 3}),
+                json_response({"items": [{"id": "b"}], "nextCursor": None, "total": 3}),
+            ]
+        )
+        rows = list(client.conversations.iter_unattended(older_than_minutes=30))
+        self.assertEqual([r["id"] for r in rows], ["a", "b"])
+        self.assertEqual(transport.count, 2)
+        for request in transport.requests:
+            params = dict(parse_qsl(urlsplit(request.url).query))
+            self.assertEqual(params["olderThanMinutes"], "30")
+
+    def test_unattended_one_page_still_reports_the_backlog_total(self) -> None:
+        """The walker hides ``total``; the single-page form must not."""
+        client, _, _ = build_client(
+            [json_response({"items": [{"id": "a"}], "nextCursor": None, "total": 41})]
+        )
+        page = client.conversations.unattended()
+        self.assertEqual(page.total, 41)
+
     def test_the_walk_is_lazy(self) -> None:
         """A generator, not a list — no request until the first ``next()``."""
         client, transport, _ = build_client(

@@ -300,6 +300,39 @@ class Conversations(Resource):
             },
         )
 
+    def iter_unattended(
+        self,
+        *,
+        limit: Optional[int] = None,
+        assignee: Optional[str] = None,
+        team: Optional[str] = None,
+        channel: Optional[str] = None,
+        older_than_minutes: Optional[int] = None,
+        **params: Any,
+    ) -> Iterator[JsonDict]:
+        """Every unattended thread, as a generator.
+
+            for convo in client.conversations.iter_unattended(older_than_minutes=30):
+                escalate(convo["id"])
+
+        Yields rows, so the envelope's ``total`` is not visible here — call
+        :meth:`unattended` when you want the backlog size rather than the
+        backlog. Note the two disagree by design on a busy workspace: ``total``
+        is computed per request, so a queue being worked while you walk it can
+        yield fewer rows than the first page's ``total`` promised.
+        """
+        return self._walk(
+            "/v1/conversations/unattended",
+            {
+                "limit": limit,
+                "assignee": assignee,
+                "team": team,
+                "channel": channel,
+                "olderThanMinutes": older_than_minutes,
+                **params,
+            },
+        )
+
     def agent_handling(self, conversation_id: str) -> JsonDict:
         """Who or what is currently handling a thread.
 

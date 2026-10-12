@@ -216,6 +216,35 @@ class Contacts(Resource):
         )
 
 
+    def iter_journey(
+        self,
+        contact_id: str,
+        *,
+        limit: Optional[int] = None,
+        days: Optional[int] = None,
+        **params: Any,
+    ) -> Iterator[JsonDict]:
+        """A contact's whole timeline, as a generator.
+
+            for row in client.contacts.iter_journey(contact_id, days=30):
+                print(row["occurredAt"], row["kind"], row["title"])
+
+        The cursor on this route is **an ISO-8601 instant**, not an opaque
+        blob: the server sets ``nextCursor`` to the ``occurredAt`` of the last
+        row it returned. That is still a cursor — walk it, and never build one
+        yourself. Constructing a timestamp looks like it ought to work and
+        silently changes which rows you get, because the window is
+        half-open on a field that several rows can share.
+
+        ``limit`` is the page size, not a total; ``days`` bounds how far back
+        the whole walk reaches (1–365, default 90).
+        """
+        return self._walk(
+            f"/v1/{encode_path('contacts', contact_id)}/journey",
+            {"limit": limit, "days": days, **params},
+        )
+
+
 def _compact(body: Mapping[str, Any]) -> JsonDict:
     """Drop ``None`` fields so an omitted argument is an absent key.
 

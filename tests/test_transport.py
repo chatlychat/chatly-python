@@ -161,7 +161,35 @@ class ResponseShapePerRoute(unittest.TestCase):
     So the fixtures here are keyed to the route, not to the manifest: a
     bare-array route is fed a bare array, a paged route is fed an envelope,
     and the assertion is on the Python type the caller receives.
+
+    Three categories, because there genuinely are three:
+    :data:`PAGE_RETURNING` (a cursor, and a ``Page`` is the useful return),
+    :data:`ENVELOPE_RETURNING` (a cursor, but the envelope carries fields a
+    ``Page`` would discard), and :data:`BARE_ARRAY` (no cursor at all).
     """
+
+    #: Paged routes whose single-page form returns a `Page`.
+    PAGE_RETURNING = [
+        ("contacts", "list", lambda ns: ns.list()),
+        ("contacts", "journey", lambda ns: ns.journey("c1")),
+        ("conversations", "list", lambda ns: ns.list()),
+        ("conversations", "messages", lambda ns: ns.messages("c1")),
+        ("conversations", "unattended", lambda ns: ns.unattended()),
+        ("tickets", "list", lambda ns: ns.list()),
+        ("kb", "articles", lambda ns: ns.articles()),
+        ("events", "list", lambda ns: ns.list()),
+        ("webhooks", "deliveries", lambda ns: ns.deliveries()),
+    ]
+
+    #: Paged, but the one-page form hands back the whole envelope.
+    #:
+    #: `/v1/search` answers `{items, nextCursor, facets, tier}`. Returning a
+    #: `Page` here would mean a caller who asked for one page silently loses
+    #: the facet counts and which tier scored the results. The walker yields
+    #: hits alone, which is the right trade inside a loop.
+    ENVELOPE_RETURNING = [
+        ("search", "query", lambda ns: ns.query("refund")),
+    ]
 
     #: Routes that answer with a top-level JSON array. The caller gets a list.
     BARE_ARRAY = [
@@ -181,17 +209,6 @@ class ResponseShapePerRoute(unittest.TestCase):
         ("workspace", "team_members", lambda ns: ns.team_members("t1")),
     ]
 
-    #: Routes that answer with `{items, nextCursor, ...}`. The caller gets a Page.
-    PAGED = [
-        ("contacts", "list", lambda ns: ns.list()),
-        ("conversations", "list", lambda ns: ns.list()),
-        ("conversations", "messages", lambda ns: ns.messages("c1")),
-        ("tickets", "list", lambda ns: ns.list()),
-        ("kb", "articles", lambda ns: ns.articles()),
-        ("events", "list", lambda ns: ns.list()),
-        ("webhooks", "deliveries", lambda ns: ns.deliveries()),
-    ]
-
     def test_bare_array_routes_return_a_plain_list(self) -> None:
         rows = [{"id": "a"}, {"id": "b"}]
         for ns_name, method_name, invoke in self.BARE_ARRAY:
@@ -206,9 +223,9 @@ class ResponseShapePerRoute(unittest.TestCase):
                 )
                 self.assertEqual([row["id"] for row in result], ["a", "b"])
 
-    def test_paged_routes_return_a_page(self) -> None:
+    def test_page_returning_routes_return_a_page(self) -> None:
         envelope = {"items": [{"id": "a"}], "nextCursor": "n2"}
-        for ns_name, method_name, invoke in self.PAGED:
+        for ns_name, method_name, invoke in self.PAGE_RETURNING:
             with self.subTest(method=f"{ns_name}.{method_name}"):
                 client, _, _ = build_client([json_response(envelope)])
                 result = invoke(getattr(client, ns_name))
@@ -219,14 +236,59 @@ class ResponseShapePerRoute(unittest.TestCase):
                     "route is cursor-paginated",
                 )
                 self.assertEqual(result.next_cursor, "n2")
+                self.assertEqual([row["id"] for row in result.items], ["a"])
 
-    def test_the_two_sets_agree_with_the_manifest(self) -> None:
-        """The paged set here must be exactly what surface.json marks paged.
+    def test_search_query_returns_the_whole_envelope(self) -> None:
+        """facets and tier must survive a one-page call.
 
-        Without this, the lists above are just another hand-maintained table
+        A caller who only ever sees hits loses the facet counts that drive a
+        "N in messages" tab, and loses which tier scored the results — and
+        ``rank`` is only comparable within one tier, so that second one is
+        not cosmetic.
+        """
+        payload = {
+            "items": [{"kind": "kb", "id": "a1", "title": "Refunds", "rank": 0.8}],
+            "nextCursor": "n2",
+            "facets": {"contact": 0, "conversation": 3, "message": 7, "ticket": 1, "kb": 2},
+            "tier": "postgres",
+        }
+        client, _, _ = build_client([json_response(payload)])
+        result = client.search.query("refund")
+
+        self.assertIsInstance(result, dict)
+        self.assertNotIsInstance(result, Page)
+        self.assertEqual(result["facets"]["message"], 7)
+        self.assertEqual(result["tier"], "postgres")
+        self.assertEqual(result["nextCursor"], "n2")
+        self.assertEqual(result["items"][0]["id"], "a1")
+
+    def test_the_search_walker_yields_hits_and_stops(self) -> None:
+        """The paginator may drop the envelope — inside a loop that is right."""
+        client, transport, _ = build_client(
+            [
+                json_response(
+                    {
+                        "items": [{"id": "a"}, {"id": "b"}],
+                        "nextCursor": "n2",
+                        "facets": {},
+                        "tier": "postgres",
+                    }
+                ),
+                json_response(
+                    {"items": [{"id": "c"}], "nextCursor": None, "facets": {}, "tier": "postgres"}
+                ),
+            ]
+        )
+        self.assertEqual([h["id"] for h in client.search.iter_query("refund")], ["a", "b", "c"])
+        self.assertEqual(transport.count, 2)
+
+    def test_the_shape_tables_agree_with_the_manifest(self) -> None:
+        """Paged routes here must be exactly what surface.json marks paged.
+
+        Without this, the tables above are just another hand-maintained list
         that can drift from the spec in the same direction as the bug.
         """
-        import json
+        import json as _json
         import pathlib as _pathlib
 
         spec_path = (
@@ -234,41 +296,21 @@ class ResponseShapePerRoute(unittest.TestCase):
         )
         if not spec_path.exists():
             self.skipTest("surface.json not present (running outside the monorepo)")
-        spec = json.loads(spec_path.read_text(encoding="utf-8"))
-        manifest_paged = {
-            (e["ns"], e["name"]) for e in spec["entries"] if e.get("paged")
-        }
-        mine_paged = {(ns, name) for ns, name, _ in self.PAGED}
-        self.assertEqual(mine_paged, manifest_paged)
+        spec = _json.loads(spec_path.read_text(encoding="utf-8"))
+        manifest_paged = {(e["ns"], e["name"]) for e in spec["entries"] if e.get("paged")}
 
-        # And nothing may be in both lists.
+        mine_page = {(ns, name) for ns, name, _ in self.PAGE_RETURNING}
+        mine_envelope = {(ns, name) for ns, name, _ in self.ENVELOPE_RETURNING}
         mine_bare = {(ns, name) for ns, name, _ in self.BARE_ARRAY}
-        self.assertEqual(mine_bare & mine_paged, set())
 
-    def test_every_paged_route_has_a_walker_and_no_bare_array_route_does(self) -> None:
-        """An ``iter_*`` on a cursor-less route would be a promise we cannot keep."""
-        client, _, _ = build_client()
-        walkers = {
-            ("contacts", "list"): "iter_list",
-            ("conversations", "list"): "iter_list",
-            ("conversations", "messages"): "iter_messages",
-            ("tickets", "list"): "iter_list",
-            ("kb", "articles"): "iter_articles",
-            ("events", "list"): "iter_list",
-            ("webhooks", "deliveries"): "iter_deliveries",
-        }
-        for (ns_name, method_name), walker in walkers.items():
-            with self.subTest(method=f"{ns_name}.{method_name}"):
-                self.assertTrue(
-                    callable(getattr(getattr(client, ns_name), walker, None)),
-                    f"{ns_name}.{walker} is missing",
-                )
-
-        self.assertFalse(
-            hasattr(client.macros, "iter_list"),
-            "GET /v1/macros is pagination-exempt — an iter_list here would "
-            "advertise a cursor the route does not have",
+        self.assertEqual(
+            mine_page | mine_envelope,
+            manifest_paged,
+            "the paged routes covered here and the manifest's paged flag disagree",
         )
+        # No route may be in two categories.
+        self.assertEqual(mine_page & mine_envelope, set())
+        self.assertEqual(mine_bare & (mine_page | mine_envelope), set())
 
 
 class EscapeHatch(unittest.TestCase):
