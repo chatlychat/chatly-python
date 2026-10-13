@@ -58,12 +58,18 @@ def flag(value: Optional[bool]) -> Optional[str]:
 def as_list(payload: Any) -> List[JsonDict]:
     """Normalise a bare-array response.
 
-    Nine key-accessible routes answer with a top-level JSON array rather than
-    a ``{"items": ...}`` envelope — they are ``@PaginationExempt`` and take no
-    cursor at all. This keeps a caller's ``for`` loop correct if one of them
-    ever grows an envelope, and returns ``[]`` rather than ``None`` for an
-    empty body, because ``for row in None`` is a crash in the caller's code
-    rather than an empty result.
+    Fourteen of the 55 routes on the typed surface answer with a top-level
+    JSON array rather than a ``{"items": ...}`` envelope — the ones the
+    manifest marks ``shape: "array"``. They are ``@PaginationExempt`` and
+    take no cursor at all. This keeps a caller's ``for`` loop correct if one
+    of them ever grows an envelope, and returns ``[]`` rather than ``None``
+    for an empty body, because ``for row in None`` is a crash in the
+    caller's code rather than an empty result.
+
+    This is the one place the tolerance belongs. ``page_from_payload`` used
+    to have it too and that was a bug: a bare array reaching a *walker*
+    means the route is not paged, and one page that looks complete is worse
+    than an error.
     """
     if payload is None:
         return []
@@ -84,7 +90,7 @@ def as_object(payload: Any) -> JsonDict:
     is. Every method that promises a single object funnels through here
     instead of casting: a cast would make the type checker agree with a wrong
     assumption, and the assumption is wrong on this API often enough to
-    matter — nine key-accessible routes answer with a top-level array, and
+    matter — 14 of the 55 typed routes answer with a top-level array, and
     confusing one of those for an object is a ``TypeError`` three frames away
     from the cause.
 

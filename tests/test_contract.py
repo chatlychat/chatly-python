@@ -503,7 +503,9 @@ class Item5Retries(unittest.TestCase):
         client, _, sleeper = build_client(
             [
                 error_response(429, "rate_limited", "no", headers={"retry-after": "86400"}),
-                json_response({}),
+                # A page envelope, not `{}`: `contacts.list` is a paged route
+                # and its decoder refuses a body that is not one.
+                json_response({"items": [], "nextCursor": None}),
             ],
             retry=RetryPolicy(jitter=False, max_retry_after=30.0),
         )

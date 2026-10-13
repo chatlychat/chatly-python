@@ -394,10 +394,17 @@ null cursor. If the server ever repeats a cursor it raises `PaginationError`
 rather than looping forever — or quietly truncating, which would be worse,
 because you would believe you had seen every row.
 
-The auto-paginators, one per cursor-paginated route: `contacts.iter_list`,
-`conversations.iter_list`, `conversations.iter_messages`,
+The auto-paginators, one per cursor-paginated route — ten of them:
+`contacts.iter_list`, `contacts.iter_journey`, `conversations.iter_list`,
+`conversations.iter_messages`, `conversations.iter_unattended`,
 `tickets.iter_list`, `kb.iter_articles`, `events.iter_list`,
-`webhooks.iter_deliveries`, plus `search.iter_query`.
+`webhooks.iter_deliveries` and `search.iter_query`.
+
+A paged method only accepts a page. If one of these routes ever answers with
+something that is not an `{"items": ..., "nextCursor": ...}` envelope — a
+bare array, say — you get a `ResponseDecodeError` and not one page that looks
+complete. A list you believe is whole is the worse failure, and two other
+Chatly SDKs shipped exactly that against `GET /v1/macros`.
 
 Methods without one return a plain list, because their route has no cursor:
 `macros.list`, `channels.list`, `billing.plans`, `kb.collections`,
@@ -498,6 +505,11 @@ client.request("DELETE", f"/v1/some/resource/{rid}")
 
 page = client.paginate("/v1/custom-objects", query={"limit": 100})
 ```
+
+`paginate` is the one place a bare array is folded into a single cursor-less
+page, because an untyped path cannot know whether the route is paged and a
+good number of the untyped ones are pagination-exempt. The typed methods are
+strict instead.
 
 - `method` — `POST`/`PUT`/`PATCH`/`DELETE` get an `Idempotency-Key`
   automatically, and `POST`/`PUT`/`PATCH` with no body send `{}`.

@@ -8,7 +8,7 @@ from typing import Any, Callable, Mapping, Optional
 
 from ._transport import DEFAULT_API_URL, QueryParams, Requester, Transport
 from .errors import InvalidArgumentError
-from .pagination import Page, page_from_payload
+from .pagination import Page, page_from_untyped_payload
 from .resources import (
     Billing,
     Channels,
@@ -238,8 +238,17 @@ class ChatlyClient:
         The pagination half of the escape hatch — several of the 85 untyped
         key-accessible routes are paged, and a caller should not have to
         re-implement envelope parsing to walk one.
+
+        A bare JSON array comes back as one cursor-less page, because an
+        untyped path cannot know whether the route is paged and several of
+        those routes are ``@PaginationExempt``. The typed methods are strict
+        instead: each one knows its route's shape, and
+        :func:`chatly.pagination.page_from_payload` raises
+        :class:`~chatly.errors.ResponseDecodeError` on anything that is not
+        an ``items`` envelope. Anything that is neither an array nor an
+        envelope raises here too.
         """
-        return page_from_payload(self.request("GET", path, query=query))
+        return page_from_untyped_payload(self.request("GET", path, query=query))
 
     def __repr__(self) -> str:
         """Identify the client without printing the key.

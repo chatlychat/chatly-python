@@ -1,11 +1,28 @@
 """Cursor pagination, and the generator that walks it. Contract §5.
 
-Every paged list endpoint returns ``{"items": [...], "nextCursor": "..." }``
-with ``nextCursor`` ``null`` on the last page. Two of them add a field:
-``GET /v1/conversations/unattended`` adds ``total`` and ``GET /v1/tickets``
-adds ``hasMore``. :class:`Page` surfaces both when they are there and
-``None`` when they are not, and keeps the whole decoded body in
-:attr:`Page.raw`, so a field this SDK has not heard of is never lost.
+Ten routes on the typed surface are paged — the ten the manifest marks
+``shape: "page"`` — and every one of them returns ``{"items": [...],
+"nextCursor": ...}`` with ``nextCursor`` ``null`` on the last page. Some add
+a field beside those two, and which field depends on the route:
+
+* ``hasMore`` on ``/v1/tickets``, ``/v1/kb/articles``,
+  ``/v1/webhooks/deliveries`` and ``/v1/cdp/events`` — the four that build
+  their envelope with the API's shared ``buildPaginatedResponse``.
+* ``total`` on ``/v1/conversations/unattended``, and nowhere else.
+* ``facets`` and ``tier`` on ``/v1/search``, which is why
+  :meth:`chatly.resources.search.Search.query` hands back the raw envelope
+  instead of a :class:`Page`.
+* Nothing extra on ``/v1/contacts``, ``/v1/contacts/{id}/journey``,
+  ``/v1/conversations`` and ``/v1/conversations/{id}/messages``.
+
+:class:`Page` surfaces ``total`` and ``has_more`` when they are there and
+``None`` when they are not — ``None`` means "not reported", never "zero" or
+"false" — and keeps the whole decoded body in :attr:`Page.raw`, so a field
+this SDK has not heard of is never lost.
+
+Nothing else is accepted. A body that is not an ``items`` envelope raises
+:class:`~chatly.errors.ResponseDecodeError` rather than becoming an empty
+page; see :func:`page_from_payload`.
 
 **Never page on ``id``.** Ids in this product are a mix of UUID v4 and v7, so
 id order is not time order — 18 lists in the dashboard were in effectively
@@ -19,7 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Generic, Iterator, List, Mapping, Optional, TypeVar
 
-from .errors import PaginationError
+from .errors import PaginationError, ResponseDecodeError
 
 T = TypeVar("T")
 
@@ -44,9 +61,11 @@ class Page(Generic[T]):
             (``/v1/conversations/unattended``). ``None`` elsewhere, which
             means "not reported", not "zero".
         has_more: present only where the endpoint sends ``hasMore``
-            (``/v1/tickets``). ``None`` elsewhere. When you only want to know
-            whether to keep going, test ``next_cursor``; it is on every paged
-            route.
+            (``/v1/tickets``, ``/v1/kb/articles``,
+            ``/v1/webhooks/deliveries``, ``/v1/cdp/events``). ``None``
+            elsewhere, which means "not reported", not "false". When you only
+            want to know whether to keep going, test ``next_cursor``; it is
+            on every paged route.
         raw: the full decoded body.
     """
 
@@ -63,24 +82,52 @@ class Page(Generic[T]):
         return len(self.items)
 
 
-def page_from_payload(payload: Any) -> Page[Any]:
-    """Wrap a decoded list response in a :class:`Page`.
+def _not_a_page(payload: Any) -> ResponseDecodeError:
+    """The error for a body that is not a cursor page. Names what did arrive."""
+    kind = "null" if payload is None else type(payload).__name__
+    extra = f" of {len(payload)}" if isinstance(payload, (list, str, dict)) else ""
+    return ResponseDecodeError(
+        "expected a cursor page from this endpoint — an object with an `items` "
+        f"array — got {kind}{extra}",
+        status=200,
+        body=repr(payload)[:512],
+    )
 
-    Tolerant on purpose, in one direction only: a bare JSON array becomes a
-    single page with no cursor (several key-accessible routes are
-    ``@PaginationExempt`` and answer with an array), and a missing
-    ``nextCursor`` is treated as the last page. It does not *invent* a shape
-    — anything unrecognised comes back as an empty page with the body intact
-    in :attr:`Page.raw`, so a caller can see what arrived.
+
+def page_from_payload(payload: Any) -> Page[Any]:
+    """Wrap a decoded page envelope in a :class:`Page`.
+
+    Strict: the body must be a JSON object carrying an ``items`` array.
+    A missing or null ``nextCursor`` is the only tolerance, and it means
+    "last page" — every paged route sends the key, and treating its absence
+    as the end is what stops a walker looping on a truncated body.
+
+    **This used to be tolerant, and the tolerance was a bug.** It accepted a
+    bare JSON array as a single cursorless page, and turned anything else
+    into an *empty* page with the body in :attr:`Page.raw`. Both readings
+    answer a wrong shape with a plausible result:
+
+    * A bare array reaching a walker means the route is not paged at all —
+      ``macros.list`` is ``@PaginationExempt`` — and the honest answer is an
+      error, not one page that looks complete. Bare-array routes come back
+      through :func:`chatly.resources._base.as_list` instead, which is where
+      that tolerance belongs.
+    * An empty page for an unrecognised body is the worse half: the caller
+      is told the list is empty. The Rust SDK shipped exactly this and
+      returned an empty page with a 200 for a bare-array route — a wrong
+      answer rather than a missing one, which no suite notices because
+      nothing raises.
+
+    Raises:
+        ResponseDecodeError: if the body is not an object, or its ``items``
+            is absent or not an array.
     """
-    if isinstance(payload, list):
-        return Page(items=list(payload), next_cursor=None, raw={"items": payload})
     if not isinstance(payload, dict):
-        return Page(items=[], next_cursor=None, raw={})
+        raise _not_a_page(payload)
 
     items = payload.get("items")
     if not isinstance(items, list):
-        items = []
+        raise _not_a_page(payload)
 
     cursor = payload.get("nextCursor", payload.get("next_cursor"))
     next_cursor = cursor if isinstance(cursor, str) and cursor != "" else None
@@ -95,6 +142,21 @@ def page_from_payload(payload: Any) -> Page[Any]:
         has_more=has_more if isinstance(has_more, bool) else None,
         raw=payload,
     )
+
+
+def page_from_untyped_payload(payload: Any) -> Page[Any]:
+    """:func:`page_from_payload` with the one tolerance the escape hatch needs.
+
+    ``ChatlyClient.paginate`` is pointed at routes this SDK has no method
+    for, and a fair number of those are ``@PaginationExempt`` and answer
+    with a bare array. There is no manifest entry to consult, so folding an
+    array into one cursor-less page is the useful reading *there* — and only
+    there. A typed method knows which shape its route sends, so it goes
+    through the strict function and a wrong shape is an error.
+    """
+    if isinstance(payload, list):
+        return Page(items=list(payload), next_cursor=None, raw={"items": payload})
+    return page_from_payload(payload)
 
 
 def iter_pages(fetch: Callable[[Optional[str]], Page[T]]) -> Iterator[Page[T]]:
@@ -145,4 +207,11 @@ def iter_items(fetch: Callable[[Optional[str]], Page[T]]) -> Iterator[T]:
             yield item
 
 
-__all__ = ["MAX_PAGES", "Page", "iter_items", "iter_pages", "page_from_payload"]
+__all__ = [
+    "MAX_PAGES",
+    "Page",
+    "iter_items",
+    "iter_pages",
+    "page_from_payload",
+    "page_from_untyped_payload",
+]

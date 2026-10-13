@@ -18,7 +18,12 @@ from urllib.parse import parse_qsl, urlsplit
 from support import build_client, json_response
 
 import chatly
-from chatly import InvalidArgumentError, PaginationError
+from chatly import (
+    InvalidArgumentError,
+    PaginationError,
+    ResponseDecodeError,
+    page_from_payload,
+)
 
 
 class Item6AutoPagination(unittest.TestCase):
@@ -94,21 +99,55 @@ class Item6AutoPagination(unittest.TestCase):
 
         The escape hatch is pointed at routes this SDK has no method for, and
         a fair number of them are pagination-exempt and answer with an array.
-        Folding that into a single cursor-less page is the useful behaviour
-        there.
+        With no manifest entry to consult, folding that into a single
+        cursor-less page is the useful reading *there*.
 
-        It is deliberately NOT how a typed method handles it: a method knows
-        which shape its route returns, so it returns a list or a ``Page``
-        accordingly. Worth being explicit, because this tolerance has a cost
-        — it is why this SDK did not *notice* when the manifest briefly
-        marked ``GET /v1/macros`` as paged. It degraded quietly instead of
-        telling anyone.
+        It is deliberately NOT how a typed method handles it, and this is the
+        only place the tolerance survives. It used to live in
+        ``page_from_payload`` itself, which every typed walker goes through,
+        and that is why this SDK did not *notice* when the manifest briefly
+        marked ``GET /v1/macros`` as paged: it degraded quietly instead of
+        telling anyone. The two tests below are the strict half.
         """
         client, transport, _ = build_client([json_response([{"id": "x1"}, {"id": "x2"}])])
         page = client.paginate("/v1/some/exempt/collection")
         self.assertEqual([row["id"] for row in page.items], ["x1", "x2"])
         self.assertIsNone(page.next_cursor)
         self.assertEqual(transport.count, 1)
+
+    def test_a_typed_walker_refuses_a_bare_array(self) -> None:
+        """A route this SDK knows is paged must not accept an unpaged body.
+
+        ``contacts.list`` is cursored. An array arriving there means the
+        route changed, or the call reached something that is not the route,
+        and either way one page that looks complete is the wrong answer —
+        the caller believes they saw every row.
+        """
+        client, transport, _ = build_client([json_response([{"id": "x1"}])])
+        with self.assertRaises(ResponseDecodeError):
+            list(client.contacts.iter_list())
+        self.assertEqual(transport.count, 1)
+
+    def test_an_unrecognised_body_is_an_error_not_an_empty_page(self) -> None:
+        """The failure mode that no suite notices, pinned.
+
+        ``page_from_payload`` used to answer anything it did not recognise
+        with an *empty* page, payload preserved in ``Page.raw``. Nothing
+        raises, the call returns 200, and the caller is told the list is
+        empty — the Rust SDK shipped exactly this. An error is the only
+        honest answer.
+        """
+        for body in ({}, {"items": {"a": 1}}, {"data": [{"id": "x1"}]}, 7, None):
+            with self.subTest(body=body):
+                with self.assertRaises(ResponseDecodeError):
+                    page_from_payload(body)
+
+    def test_the_error_names_what_actually_arrived(self) -> None:
+        """"expected a page, got list of 2" is the whole diagnosis."""
+        with self.assertRaises(ResponseDecodeError) as caught:
+            page_from_payload([{"id": "x1"}, {"id": "x2"}])
+        self.assertIn("list of 2", str(caught.exception))
+        self.assertIn("items", str(caught.exception))
 
     def test_the_journey_walker_carries_an_iso_cursor_back_unchanged(self) -> None:
         """This route's cursor is a timestamp, and must be echoed verbatim.

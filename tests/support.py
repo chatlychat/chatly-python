@@ -66,13 +66,28 @@ def error_response(
     )
 
 
+#: The fallback body, for tests that assert on the *request* and do not care
+#: what comes back.
+#:
+#: A cursor envelope, because it is the one body every decoder on this surface
+#: accepts: ``as_object`` takes the dict, ``as_list`` unwraps ``items``, and
+#: ``page_from_payload`` is satisfied. That is exactly what makes it a USELESS
+#: shape fixture and a convenient request fixture, and the distinction is the
+#: whole reason ``tests/test_surface_lock.py`` declares a shape per route and
+#: feeds each method its own body instead of reusing this. A fake that answers
+#: every route with a page envelope is how two other SDKs shipped a paginator
+#: over the bare-array ``GET /v1/macros`` with a green suite.
+ANY_SHAPE_BODY = {"items": [], "nextCursor": None}
+
+
 class FakeTransport(Transport):
     """Records every request and replays a scripted list of responses.
 
     An entry may be an :class:`Exception`, which is raised instead of
     returned — that is how a connection failure is simulated without a
-    network. Once the script is exhausted it serves ``{}`` with a 200, so a
-    test that only cares about the *request* does not have to script a reply.
+    network. Once the script is exhausted it serves :data:`ANY_SHAPE_BODY`
+    with a 200, so a test that only cares about the *request* does not have
+    to script a reply.
     """
 
     def __init__(
@@ -80,7 +95,7 @@ class FakeTransport(Transport):
     ) -> None:
         self.requests: List[HTTPRequest] = []
         self._script: Deque[Union[HTTPResponse, Exception]] = deque(responses or ())
-        self.fallback = json_response({})
+        self.fallback = json_response(ANY_SHAPE_BODY)
 
     def send(self, request: HTTPRequest) -> HTTPResponse:
         self.requests.append(request)

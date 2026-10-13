@@ -6,6 +6,58 @@ This project follows [Semantic Versioning](https://semver.org/). Until
 `1.0.0`, minor versions may contain breaking changes; they will always be
 listed here.
 
+## Unreleased
+
+### Changed
+
+- **A paged method now refuses a body that is not a page.**
+  `page_from_payload` used to fold a bare JSON array into one cursor-less
+  page, and turn any other unrecognised body into an _empty_ page with the
+  payload kept in `Page.raw`. Both readings answer a wrong shape with a
+  plausible result: the caller is handed one page that looks complete, or an
+  empty list, with a 200 and nothing raised. It raises `ResponseDecodeError`
+  now. The tolerance survives only on `client.paginate`, the untyped escape
+  hatch, where there is no manifest entry to consult and several reachable
+  routes are pagination-exempt.
+
+  This is a behaviour change for anyone who was relying on a typed walker
+  silently accepting an unpaged body. Nothing on the current API does that —
+  all ten paged routes send the envelope — so in practice it converts a
+  wrong answer into an error.
+
+### Added
+
+- `surface.lock.json` now records, per route, the **top-level response
+  shape** this SDK's decoder expects: `array`, `page`, `object` or `empty`.
+  The column is hand-written in `tests/test_surface_lock.py` from the API's
+  handlers and deliberately **not** read from `packages/sdk-spec/surface.json`
+  — a fixture derived from the manifest agrees with the manifest even when
+  the manifest is wrong, which is how the sibling `paged` flag stayed wrong
+  in both directions for months. `scripts/check-sdk-surface-parity.mjs`
+  diffs eight independently written columns against the manifest.
+- The suite now feeds every method a body of **its own** declared shape and
+  asserts the value handed back really has that shape, which catches a
+  method that wraps or unwraps an envelope even when the request it issued
+  was perfect. It also asserts the distribution of the column (14 `array`,
+  10 `page`, 30 `object`, 1 `empty`), because a column of 55 `object` rows
+  would satisfy every other assertion and prove nothing.
+- Every auto-paginator is fed a bare array where it expects a page and
+  required to raise, with the set of walkers exercised asserted equal to the
+  ten routes declared `page`.
+
+### Fixed
+
+- `tests/support.py`'s fallback response is a cursor envelope rather than
+  `{}`, for the tests that assert on the _request_. The 0.1.0 note below
+  claimed response shapes were already pinned per route; they were not —
+  every route was answered with the same body — and that claim is true as of
+  this entry.
+- The documented count of auto-paginators was seven; there are ten.
+  `contacts.iter_journey` and `conversations.iter_unattended` were missing
+  from the README's list, and `GET /v1/kb/articles`,
+  `GET /v1/webhooks/deliveries` and `GET /v1/cdp/events` send `hasMore`
+  beside the cursor, which `pagination.py` claimed only `/v1/tickets` did.
+
 ## 0.1.0 — 2026-10-12
 
 First release. Implements the cross-language Chatly backend-SDK contract
@@ -35,7 +87,7 @@ First release. Implements the cross-language Chatly backend-SDK contract
 - **Idempotency.** A fresh UUID per write by default;
   `client.with_idempotency_key(key)` returns a derived client that pins one.
 - **Pagination.** `Page` for a single page (`items`, `next_cursor`, `total`,
-  `has_more`, `raw`) and an `iter_*` generator for each of the seven
+  `has_more`, `raw`) and an `iter_*` generator for each of the ten
   cursor-paginated routes. Lazy, stops on a null cursor, and raises
   `PaginationError` rather than looping if the server repeats one.
   Pagination-exempt collections — `macros.list`, `channels.list`,
