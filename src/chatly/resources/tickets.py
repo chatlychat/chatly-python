@@ -253,4 +253,125 @@ class Tickets(Resource):
         return self._post_obj("/v1/tickets/bulk", body)
 
 
+    def conversations(self, ticket_id: str) -> List[JsonDict]:
+        """The conversations a ticket covers. A bare list.
+
+        Each row is ``{"conversationId", "isOrigin", "subject", "status",
+        "channelType"}``-shaped, **origin first** — that is the only ordering
+        key, so rows within each group arrive in no defined order.
+
+        ``subject``, ``status`` and ``channelType`` are **nullable**: the
+        join is outer, so a link whose conversation was hard-deleted still
+        returns a row with the detail missing. That is deliberate — the link
+        is the fact, the conversation is the lookup.
+
+        **An unknown or cross-tenant ticket id returns ``[]``, not 404.**
+        And the rows are narrowed by the caller's inbox scope, so a
+        restricted credential legitimately sees fewer conversations than the
+        ticket covers. Neither case is distinguishable from "no
+        conversations", so do not use an empty list as an existence check.
+        """
+        return as_list(
+            self._get(f"/v1/{encode_path('tickets', ticket_id)}/conversations")
+        )
+
+    def lineage(self, ticket_id: str) -> JsonDict:
+        """How a ticket relates to the ones it was split from or follows.
+
+        Returns ``{"splitFromTicketId", "parentTicketId", "splitFrom",
+        "splitInto", "splitIntoTruncated", "followUpOf", "followUps",
+        "followUpsTruncated"}``. A resolved reference is
+        ``{"id", "number", "title", "status"}``.
+
+        **The raw ids come back beside the resolved references on purpose.**
+        Neither column has a foreign key, so a non-null id with a ``None``
+        reference is a dangling pointer — a ticket that was hard-deleted —
+        and you can only see that by comparing the two.
+
+        ``splitInto`` and ``followUps`` are each capped at 25 with a
+        ``*Truncated`` flag beside them; there is no cursor to the rest.
+
+        Unlike :meth:`conversations`, an unknown ticket is a **404** here,
+        and so is one whose conversations you cannot see — the response
+        carries other tickets' titles, so visibility is checked before
+        anything is returned.
+        """
+        return self._get_obj(f"/v1/{encode_path('tickets', ticket_id)}/lineage")
+
+    def open_count(self, conversation_id: str) -> JsonDict:
+        """How many open tickets a **conversation** has.
+
+        Returns ``{"openTickets": n}``.
+
+        Note the argument: this route is keyed by a conversation, not a
+        ticket, which is why it sits under ``/v1/tickets/open-count/...``
+        rather than taking a ticket id like its neighbours.
+
+        "Open" means **not ``resolved`` and not ``closed``** — so
+        ``pending``, ``snoozed`` and anything a newer deploy introduces all
+        count. It counts through the link table, so a tracker ticket spanning
+        several conversations counts once on each of them.
+
+        An unknown conversation answers ``{"openTickets": 0}``. A
+        conversation outside your inbox scope is a **404** rather than a 403,
+        deliberately, so this cannot be used to enumerate what exists.
+        """
+        return self._get_obj(
+            f"/v1/tickets/open-count/{encode_path(conversation_id)}"
+        )
+
+    def status_history(self, ticket_id: str) -> JsonDict:
+        """A ticket's status transitions. An **object**, not a list.
+
+        Returns ``{"ticketId", "status", "currentStatusForSeconds", "items",
+        "truncated"}`` — the transitions are under ``items``, **oldest
+        first**.
+
+        ``status`` is read from the ticket itself rather than from the last
+        history row, so it is right even when history is incomplete.
+        ``currentStatusForSeconds`` is time since the most recent *recorded*
+        transition, and ``None`` when there is none.
+
+        ``items`` is capped at 500 and ``truncated`` is the only thing that
+        distinguishes a capped timeline from a short one. When it is capped
+        you keep the **recent** end, not the beginning.
+
+        Per transition: ``previousStatus`` is ``None`` on the ticket's first
+        row and on the first row *returned*, as is
+        ``timeInPreviousStatusSeconds``. ``changeSource`` is a closed set —
+        ``manual``, ``workflow``, ``api``, ``sla_breach``,
+        ``customer_reply`` — and ``changedByUserId``/``changedByEmail`` are
+        ``None`` for everything automated.
+
+        An unknown ticket is a 404, so that a row-level-security miss cannot
+        read as "no history".
+        """
+        return self._get_obj(
+            f"/v1/{encode_path('tickets', ticket_id)}/status-history"
+        )
+
+    def time(self, ticket_id: str) -> JsonDict:
+        """Logged time on a ticket. An **object**, not a list.
+
+        Returns ``{"items", "totalMinutes", "billableMinutes"}``, newest
+        first. An entry is ``{"id", "minutes", "note", "startedAt",
+        "billable", "userId", "createdAt", ...}``.
+
+        **Time is not tracked automatically.** There is exactly one writer in
+        the product — ``POST /v1/tickets/{id}/time`` — so this list is empty
+        unless somebody posted entries. And **that write is not available to
+        an API key**: a key can read this and can never populate it, which
+        makes an empty result the expected answer for a key-only
+        integration rather than a sign something is wrong.
+
+        ``billableMinutes`` is the figure that reaches an invoice;
+        ``totalMinutes`` includes non-billable entries.
+
+        **An unknown or cross-tenant ticket answers zeros, not 404** — unlike
+        :meth:`lineage` and :meth:`status_history`, this one does not check
+        the ticket exists.
+        """
+        return self._get_obj(f"/v1/{encode_path('tickets', ticket_id)}/time")
+
+
 __all__ = ["Tickets"]

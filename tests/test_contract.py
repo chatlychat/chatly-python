@@ -201,23 +201,37 @@ class Item3IdempotencyKeys(unittest.TestCase):
         """The Node SDK rebound namespaces one by one and missed ``search``.
 
         A derived client whose namespaces point at the parent's requester is
-        exactly that bug, so check all twelve rather than the one the
-        previous test happened to use.
+        exactly that bug, so check all twenty-three rather than the one the
+        previous test happened to use. The list is written out rather than
+        reflected off the instance: reading it from ``vars(client)`` would
+        make this test agree with whatever ``_wire`` happens to build, and
+        the bug being guarded against lives in ``_wire``.
         """
         client, transport, _ = build_client()
         pinned = client.with_idempotency_key("f0f0f0f0-0000-4000-8000-00000000000a")
         for name in (
+            "ai",
+            "billing",
+            "bot_routes",
+            "bots",
+            "brands",
+            "canvas_steps",
+            "channels",
             "contacts",
             "conversations",
-            "tickets",
-            "macros",
-            "kb",
-            "search",
+            "customer_card_endpoints",
+            "customer_cards",
+            "docs_sources",
+            "email_templates",
             "events",
-            "webhooks",
+            "kb",
+            "knowledge_gaps",
+            "macros",
             "reports",
-            "channels",
-            "billing",
+            "search",
+            "tickets",
+            "triggers",
+            "webhooks",
             "workspace",
         ):
             with self.subTest(namespace=name):

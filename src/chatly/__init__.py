@@ -19,7 +19,7 @@ Zero runtime dependencies: everything here is the standard library.
 
 What is in this package:
 
-* :class:`ChatlyClient` — the client, with twelve resource namespaces,
+* :class:`ChatlyClient` — the client, with twenty-three resource namespaces,
   :meth:`~ChatlyClient.whoami`, :meth:`~ChatlyClient.with_idempotency_key`
   and :meth:`~ChatlyClient.request`, the escape hatch to any endpoint.
 * :func:`verify_webhook_signature` — verify a delivery in your own handler.

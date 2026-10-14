@@ -179,6 +179,9 @@ class ResponseShapePerRoute(unittest.TestCase):
         ("kb", "articles", lambda ns: ns.articles()),
         ("events", "list", lambda ns: ns.list()),
         ("webhooks", "deliveries", lambda ns: ns.deliveries()),
+        ("bots", "list", lambda ns: ns.list()),
+        ("bots", "deliveries", lambda ns: ns.deliveries("b1")),
+        ("triggers", "list", lambda ns: ns.list()),
     ]
 
     #: Paged, but the one-page form hands back the whole envelope.
@@ -207,6 +210,30 @@ class ResponseShapePerRoute(unittest.TestCase):
         ("workspace", "labels", lambda ns: ns.labels()),
         ("workspace", "inboxes", lambda ns: ns.inboxes()),
         ("workspace", "team_members", lambda ns: ns.team_members("t1")),
+        # The 18 added with the rest of the surface on 2026-10-14. Three are
+        # worth pointing at: `channels.adapters` answers an array of plain
+        # STRINGS rather than objects, `docs_sources.discover` is a POST that
+        # answers a bare array, and `ai.set_tone` is a PUT that does — none
+        # of which a reader would guess from the verb.
+        ("ai", "tools", lambda ns: ns.tools()),
+        ("ai", "tone", lambda ns: ns.tone()),
+        ("ai", "set_tone", lambda ns: ns.set_tone([{"category": "warmth", "rule": "Be kind"}])),
+        ("bot_routes", "list", lambda ns: ns.list()),
+        ("brands", "list", lambda ns: ns.list()),
+        ("channels", "adapters", lambda ns: ns.adapters()),
+        ("customer_cards", "list", lambda ns: ns.list()),
+        ("customer_card_endpoints", "list", lambda ns: ns.list()),
+        ("docs_sources", "list", lambda ns: ns.list()),
+        ("docs_sources", "providers", lambda ns: ns.providers()),
+        ("docs_sources", "discover", lambda ns: ns.discover(provider="gitbook", token="t")),
+        ("email_templates", "list", lambda ns: ns.list()),
+        ("knowledge_gaps", "list", lambda ns: ns.list()),
+        ("reports", "attribution", lambda ns: ns.attribution()),
+        ("reports", "sources", lambda ns: ns.sources()),
+        ("tickets", "conversations", lambda ns: ns.conversations("t1")),
+        ("webhooks", "list", lambda ns: ns.list()),
+        ("workspace", "key_scopes", lambda ns: ns.key_scopes()),
+        ("workspace", "mine", lambda ns: ns.mine()),
     ]
 
     def test_bare_array_routes_return_a_plain_list(self) -> None:
@@ -311,6 +338,23 @@ class ResponseShapePerRoute(unittest.TestCase):
         # No route may be in two categories.
         self.assertEqual(mine_page & mine_envelope, set())
         self.assertEqual(mine_bare & (mine_page | mine_envelope), set())
+
+        # And the bare-array table must be COMPLETE, not merely disjoint.
+        # Checked against this package's own hand-declared shape column
+        # rather than against the manifest, for the reason that column
+        # exists. Without this half, a route could quietly fall out of
+        # BARE_ARRAY and keep every assertion above satisfied — which is
+        # exactly how the table it replaced went stale.
+        from expected_shapes import EXPECTED_SHAPE
+
+        declared_arrays = {
+            tuple(key.split(".", 1)) for key, shape in EXPECTED_SHAPE.items() if shape == "array"
+        }
+        self.assertEqual(
+            mine_bare,
+            declared_arrays,
+            "every route this SDK declares `array` must be exercised here, and nothing else",
+        )
 
 
 class EscapeHatch(unittest.TestCase):

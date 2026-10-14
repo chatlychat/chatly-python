@@ -27,6 +27,31 @@ listed here.
 
 ### Added
 
+- **The whole key-accessible surface now has typed methods: 162, up from 55.** Eleven new namespaces — `ai`, `bots`, `bot_routes`, `brands`,
+  `canvas_steps`, `customer_cards`, `customer_card_endpoints`,
+  `docs_sources`, `email_templates`, `knowledge_gaps`, `triggers` — and 104
+  new methods across those and the existing twelve, plus the three below. Every route was verified
+  against its handler before being implemented: the manifest has been wrong
+  in both directions before, and the response shape each method expects was
+  derived independently from each handler's `@ZodResponse` schema rather than
+  copied from `surface.json`. All 162 agreed on this pass.
+- `client.me()` (`GET /v1/me`), `webhooks.delete(endpoint_id)` and
+  `workspace.mine()`, the three routes added to the manifest after the sweep
+  above. `me()` is the one to call first: it answers the same thing as
+  `whoami()` for a key but requires **no scope**, so a key with a wrong or
+  narrow grant still gets a 200 and you can tell a bad credential from a
+  missing permission. `webhooks.delete` closes an asymmetry — a key could
+  register a delivery target and never remove one.
+- Three new auto-paginators, bringing the total to thirteen:
+  `bots.iter_list`, `bots.iter_deliveries` and `triggers.iter_list`. All
+  three routes are built by the API's shared `buildPaginatedResponse`, so
+  they carry `hasMore` beside the cursor — which makes six such routes, not
+  the four the manifest's own prose claims.
+- `billing.invoices` is cursor-paginated and deliberately has **no** `iter_`
+  form: its envelope key is `data`, not `items`, so it is not a `Page`. It
+  returns the raw dict and its docstring carries the loop, because reading
+  it as unpaginated silently truncates any customer with more than 25
+  invoices.
 - `surface.lock.json` now records, per route, the **top-level response
   shape** this SDK's decoder expects: `array`, `page`, `object` or `empty`.
   The column is hand-written in `tests/test_surface_lock.py` from the API's
@@ -38,12 +63,28 @@ listed here.
 - The suite now feeds every method a body of **its own** declared shape and
   asserts the value handed back really has that shape, which catches a
   method that wraps or unwraps an envelope even when the request it issued
-  was perfect. It also asserts the distribution of the column (14 `array`,
-  10 `page`, 30 `object`, 1 `empty`), because a column of 55 `object` rows
+  was perfect. It also asserts the distribution of the column (33 `array`,
+  13 `page`, 115 `object`, 1 `empty`), because a column of 162 `object` rows
   would satisfy every other assertion and prove nothing.
 - Every auto-paginator is fed a bare array where it expects a page and
   required to raise, with the set of walkers exercised asserted equal to the
-  ten routes declared `page`.
+  thirteen routes declared `page`.
+- `tests/test_transport.py`'s bare-array table is now asserted **complete**
+  against this package's own declared shapes, not merely disjoint from the
+  paged ones. Without that half a route could fall out of the table and
+  leave every other assertion satisfied, which is how the list it replaced
+  went stale.
+
+### Changed
+
+- The hand-declared shape column moved from `tests/test_surface_lock.py` to
+  `tests/expected_shapes.py`, and the invocation table from
+  `tests/test_surface.py` to `tests/invocations.py`; the six
+  `conversations` routes that are _about_ a thread rather than in it moved to
+  `chatly/resources/conversation_edges.py`, a mixin
+  `Conversations` inherits. All three splits are the contract's 650-line
+  ceiling (§9) rather than a change of design — `client.conversations` still
+  exposes every method and nothing was renamed.
 
 ### Fixed
 

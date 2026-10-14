@@ -6,10 +6,11 @@ from typing import Any, Iterator, List, Mapping, Optional, Sequence, Union
 
 from .._transport import encode_path
 from ..pagination import Page
-from ._base import CsvValue, JsonDict, Resource, as_list, csv, flag
+from ._base import CsvValue, JsonDict, as_list, csv, flag
+from .conversation_edges import ConversationEdges
 
 
-class Conversations(Resource):
+class Conversations(ConversationEdges):
     """Read threads, send messages, schedule sends, and propose replies.
 
     A conversation object carries ``id``, ``workspaceId``, ``brandId``,
@@ -23,7 +24,9 @@ class Conversations(Resource):
 
     Closing, reopening, assigning, marking read and bulk operations are
     absent on purpose: they record *who* acted, so they answer an API key
-    with 403.
+    with 403. Handing a thread back to a bot is the exception — see
+    :meth:`return_to_bot`, which records a null actor rather than inventing
+    one.
     """
 
     def list(

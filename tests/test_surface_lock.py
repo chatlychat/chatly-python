@@ -7,25 +7,25 @@ over:
 
 * **It could not tell documentation from code.** Three SDK authors wrote doc
   comments about two routes that turned out to be unreachable; the gate
-  counted those comments as implementations and printed ``55/55`` for methods
-  that raised ``NotImplementedError``.
+  counted those comments as implementations and printed a full score for
+  methods that raised ``NotImplementedError``.
 * **It could not see a path that is built rather than written.** This SDK
   percent-encodes user-supplied segments, so
   ``Workspace.team_members`` assembles its path with
   ``encode_path('teams', team_id)`` and the string ``/v1/teams/`` appears
   nowhere in the file. A text scan reads that as "not implemented".
 
-The lock file is produced by calling all 55 methods through the in-process
+The lock file is produced by calling all 162 methods through the in-process
 fake transport and recording the request each one actually issued. A comment
 cannot emit an HTTP request, and a helper-built path shows up the same as a
 literal one, so the artifact is evidence rather than inference.
 
 Each entry also carries the top-level **shape** of the route's successful
 response — ``array``, ``page``, ``object`` or ``empty`` — declared by hand in
-:data:`EXPECTED_SHAPE` below and fed to the method it describes. Read that
-comment before changing a value: the declaration is this SDK's own second
-opinion on the API, not a copy of the manifest's, and it is only worth
-something because the two were written independently.
+:mod:`expected_shapes` and fed to the method it describes. Read the comment
+at the top of that module before changing a value: the declaration is this
+SDK's own second opinion on the API, not a copy of the manifest's, and it is
+only worth something because the two were written independently.
 
 Regenerating it is part of running the suite, deliberately — a lock that only
 refreshes when someone remembers to run a script is a lock that goes stale
@@ -41,8 +41,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote, urlsplit
 
 import support
+from expected_shapes import EXPECTED_SHAPE, SHAPE_COUNTS
+from invocations import CALLS
 from support import HTTPResponse, build_client, json_response
-from test_surface import CALLS, SPEC_PATH
+from test_surface import SPEC_PATH
 
 from chatly import Page, ResponseDecodeError
 
@@ -52,7 +54,13 @@ LOCK_PATH = pathlib.Path(__file__).resolve().parents[1] / "surface.lock.json"
 #: Minimum entries. A manifest that failed to parse must fail loudly rather
 #: than shrink the audited set to zero and report success — the exact way
 #: two gates in this repo have gone blind.
-FLOOR = 55
+#:
+#: 55 until 2026-10-14, when the remaining key-accessible routes got typed
+#: methods — 104 of them, then three more (``webhooks.delete``, ``root.me``,
+#: ``workspace.mine``) once those were added to the manifest. It has only
+#: ever moved up, and it must: a drop means the manifest stopped parsing, not
+#: that the API shrank.
+FLOOR = 162
 
 
 #: The four top-level response shapes. Every route on the surface is exactly
@@ -60,124 +68,11 @@ FLOOR = 55
 #: from a handler's ``@ZodResponse`` schema.
 SHAPES = ("array", "page", "object", "empty")
 
-#: The response shape **this SDK's decoder expects** from each route, keyed
-#: ``ns.name``.
-#:
-#: ======================= READ THIS BEFORE CHANGING A VALUE ===============
-#:
-#: Hand-written from the handlers, and deliberately **not** read from
-#: ``surface.json`` — even though this module loads that manifest for the
-#: path templates and the verbs.
-#:
-#: A fixture derived from the manifest agrees with whatever the manifest
-#: says, including when the manifest is wrong, and that is not hypothetical.
-#: The sibling field ``paged`` was wrong in both directions for months:
-#: ``macros.list`` was flagged paged while its handler is
-#: ``@PaginationExempt`` and answers a bare 200 array, and three genuinely
-#: cursored routes were unflagged. The .NET and Rust clients built
-#: paginators over ``GET /v1/macros`` and raised a decode error against the
-#: real API with green suites, because their fake transports answered EVERY
-#: route with ``{"items": ..., "nextCursor": ...}``. Worse, Rust's derived
-#: page decoder read the bare array as an *empty page* and returned it with
-#: a 200 — a wrong answer rather than a missing one.
-#:
-#: So this column is a second opinion, not a copy. The suite below feeds
-#: each method the shape declared HERE and asserts the value handed back
-#: really has that shape; the lock carries the declaration;
-#: ``scripts/check-sdk-surface-parity.mjs`` then diffs eight independently
-#: written columns against the manifest. A wrong manifest row needs eight
-#: authors to misread the same handler.
-#:
-#: Three rows look wrong and are not:
-#:
-#: * ``contacts.remove_tag`` is a ``DELETE`` that answers 200 with the
-#:   surviving contact — the same object the tag ``POST`` returns.
-#: * ``conversations.cancel_scheduled`` is a ``DELETE`` that answers 200
-#:   with the row it just cancelled (``@ZodResponse(scheduledMessageSchema)``).
-#: * ``macros.delete`` is the ONLY real 204 on this surface.
-#:
-#: And two of the four report routes are bare arrays, not envelopes.
-EXPECTED_SHAPE: Dict[str, str] = {
-    "root.whoami": "object",
-    # -- contacts ------------------------------------------------------
-    "contacts.list": "page",
-    "contacts.get": "object",
-    "contacts.upsert": "object",
-    "contacts.bulk_upsert": "object",
-    "contacts.merge": "object",
-    "contacts.add_tags": "object",
-    "contacts.remove_tag": "object",  # a DELETE with a body
-    "contacts.unsubscribe": "object",
-    "contacts.journey": "page",
-    # -- conversations -------------------------------------------------
-    "conversations.list": "page",
-    "conversations.get": "object",
-    "conversations.messages": "page",
-    "conversations.send": "object",
-    "conversations.unattended": "page",  # the envelope with `total`
-    "conversations.agent_handling": "object",
-    "conversations.set_agent_handling": "object",
-    "conversations.generated_replies": "array",
-    "conversations.generate_reply": "object",
-    "conversations.scheduled_messages": "array",
-    "conversations.schedule_message": "object",
-    "conversations.cancel_scheduled": "object",  # also a DELETE with a body
-    # -- tickets -------------------------------------------------------
-    "tickets.list": "page",
-    "tickets.comments": "array",
-    "tickets.for_conversation": "array",
-    "tickets.queues": "array",
-    "tickets.merge": "object",
-    "tickets.split": "object",
-    "tickets.bulk": "object",
-    # -- macros --------------------------------------------------------
-    # `@PaginationExempt`, bare array, capped at 200 by usage rank. The row
-    # that cost two SDKs a decode error in production.
-    "macros.list": "array",
-    "macros.create": "object",
-    "macros.update": "object",
-    "macros.delete": "empty",  # `@HttpCode(204)`, handler returns nothing
-    # -- kb ------------------------------------------------------------
-    "kb.articles": "page",
-    "kb.article": "object",
-    "kb.collections": "array",
-    # -- search --------------------------------------------------------
-    "search.query": "page",  # `items` + `nextCursor` + `tier` + `facets`
-    # -- cdp events ----------------------------------------------------
-    "events.track": "object",
-    "events.list": "page",
-    # -- webhooks ------------------------------------------------------
-    "webhooks.deliveries": "page",
-    "webhooks.delivery": "object",
-    "webhooks.redeliver": "object",
-    # -- reports -------------------------------------------------------
-    "reports.overview": "object",
-    "reports.agents": "array",
-    "reports.conversations_by_day": "array",
-    "reports.sla": "object",
-    # -- channels ------------------------------------------------------
-    "channels.list": "array",
-    "channels.get": "object",
-    # -- billing -------------------------------------------------------
-    "billing.plans": "array",
-    "billing.usage": "object",
-    # -- workspace -----------------------------------------------------
-    "workspace.settings": "object",
-    "workspace.labels": "array",
-    "workspace.inboxes": "array",
-    "workspace.team_members": "array",
-    "workspace.agent_skills": "object",
-}
-
-#: The distribution of the column above, from reading all 55
-#: ``@ZodResponse`` schemas on 2026-10-12.
-#:
-#: Asserted, because every other assertion in this file would be satisfied
-#: by a column that said ``object`` fifty-five times — unanimity about
-#: nothing. If the surface grows these numbers change, but all four shapes
-#: must stay represented and ``empty`` must stay at exactly one until a
-#: second real 204 genuinely ships.
-SHAPE_COUNTS = {"array": 14, "page": 10, "object": 30, "empty": 1}
+# The hand-declared shape column, and its asserted distribution, live in
+# `tests/expected_shapes.py` — moved there when this file hit the contract's
+# 650-line ceiling (§9). Read the comment at the top of that module before
+# changing a value: the whole worth of the column is that it was written
+# from the handlers rather than copied from the manifest.
 
 
 def response_for_shape(shape: str) -> HTTPResponse:
@@ -296,7 +191,7 @@ def sort_key(entry: Dict[str, Any]) -> Tuple[str, str]:
 
 
 class SurfaceLock(unittest.TestCase):
-    """Execute all 55 methods, write the lock, then assert on it.
+    """Execute all 162 methods, write the lock, then assert on it.
 
     Generation happens in :meth:`setUpClass` rather than in a test, because
     unittest orders a class's tests alphabetically: the tests that read the
@@ -538,12 +433,12 @@ class DeclaredShapes(unittest.TestCase):
         self.assertEqual(bad, {})
 
     def test_the_column_is_not_vacuous(self) -> None:
-        """A column of 55 ``object`` rows is unanimity about nothing.
+        """A column of 162 ``object`` rows is unanimity about nothing.
 
         Every other assertion in this file would pass it: the fixture would
         be an object, each method would be handed an object, and the lock
         would agree with itself. The distribution is the only thing that
-        notices, so it is pinned — 14 arrays, 10 pages, 30 objects and the
+        notices, so it is pinned — 33 arrays, 13 pages, 115 objects and the
         single real 204.
         """
         counts = {shape: 0 for shape in SHAPES}
@@ -560,12 +455,15 @@ class DeclaredShapes(unittest.TestCase):
 #: that this hand-written set equals the routes declared ``page``, which is
 #: only worth something if the two sides were produced independently.
 WALKERS = {
+    "bots.list": lambda c: c.bots.iter_list(),
+    "bots.deliveries": lambda c: c.bots.iter_deliveries("ID1"),
     "contacts.list": lambda c: c.contacts.iter_list(),
     "contacts.journey": lambda c: c.contacts.iter_journey("ID1"),
     "conversations.list": lambda c: c.conversations.iter_list(),
     "conversations.messages": lambda c: c.conversations.iter_messages("ID1"),
     "conversations.unattended": lambda c: c.conversations.iter_unattended(),
     "tickets.list": lambda c: c.tickets.iter_list(),
+    "triggers.list": lambda c: c.triggers.iter_list(),
     "kb.articles": lambda c: c.kb.iter_articles(),
     "search.query": lambda c: c.search.iter_query("refund"),
     "events.list": lambda c: c.events.iter_list(),

@@ -119,7 +119,7 @@ class AuthenticationError(APIError):
 class PermissionDeniedError(APIError):
     """403 — the key is valid but lacks the scope, or the route needs a person.
 
-    140 of the API's routes accept a ``ck_`` key; the rest answer one with
+    174 of the API's routes accept a ``ck_`` key; the rest answer one with
     this, because they record *who* acted and a key is not a person. Telling
     this apart from :class:`AuthenticationError` without parsing a message is
     the whole point of the split (contract §3).

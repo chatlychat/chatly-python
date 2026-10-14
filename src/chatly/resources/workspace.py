@@ -127,4 +127,97 @@ class Workspace(Resource):
         return self._get_obj("/v1/agents/skills")
 
 
+    def mine(self) -> List[JsonDict]:
+        """Every workspace the caller can reach. A bare list.
+
+        **For an API key that is a list of exactly one** — the workspace the
+        key was minted in — which makes this the cheapest way to confirm
+        which tenant a credential actually points at, and to get the
+        workspace's ``name``, ``slug`` and ``plan`` while you are there. The
+        route is the cross-workspace one, so the single-entry answer is a
+        property of the credential rather than of the route.
+
+        Each row is ``{"id", "name", "slug", "plan", "role", "createdAt"}``.
+        ``role`` is **the caller's role in that workspace, not a property of
+        the workspace** — and for a key it is the synthetic ``restricted``
+        every key is given, never the role of whoever created it. What a key
+        may actually do is its scope set: read that from the client's own
+        ``me()`` or :meth:`chatly.ChatlyClient.whoami`.
+
+        Reachable on a **suspended** workspace, deliberately: this is how a
+        caller discovers the others, and refusing it would strand someone in
+        the suspended one with a healthy workspace a click away.
+
+        Pagination-exempt — the list is bounded by the caller's own
+        memberships.
+        """
+        return as_list(self._get("/v1/workspaces/me"))
+
+    def key_scopes(self) -> List[JsonDict]:
+        """The scopes an API key can be granted. A bare list.
+
+        Each row is ``{"value", "group"}``, where ``group`` is just the part
+        of ``value`` before the first colon.
+
+        **Static and workspace-independent** — identical for every caller, so
+        cache it. It is also the only route on the api-keys controller a key
+        may call besides ``whoami``: managing keys with a key is a
+        privilege-escalation shape.
+
+        **This is deliberately not the whole permission vocabulary.** It once
+        returned all ~80 permissions, which let customers mint keys scoped to
+        permissions no key-accessible route honours — every call then 403'd.
+        It is now pinned to the permissions actually required by decorated
+        routes, so it **grows as the surface grows**: fetch it rather than
+        hard-coding a copy.
+
+        Compare :meth:`chatly.ChatlyClient.whoami`, which reports the scopes
+        *your* key really holds.
+        """
+        return as_list(self._get("/v1/api-keys/scopes"))
+
+    def secrets(self) -> JsonDict:
+        """A census of every credential the workspace stores.
+
+        **Needs two scopes, ANDed: ``workspace:write`` and
+        ``integrations:read``.** It is the only route on this SDK's surface
+        that requires two, and a key holding one of them gets a 403.
+
+        Returns ``{"items", "total", "truncated"}`` — an ``items`` key and
+        **no cursor**, so this is not a page. It cannot be one: the census
+        spans nine tables with mixed UUID v4 and v7 ids and no common keyset.
+
+        **No entry carries a secret, a prefix of one, a hash of one, or its
+        length.** That is a hard constraint and the reason this route may be
+        key-accessible at all.
+
+        Each item is ``{"id", "source", "kind", "label", "location",
+        "resourceId", "surfaces", "owner", "status", "createdAt",
+        "rotatedAt", "rotatedAtBasis", "lastUsedAt", "lastUsedBasis",
+        "rotateRoute", "scopes", "headerNames"}``. ``id`` is a synthetic
+        ``<source>:<rowid>[:<keypath>]``, not a database id.
+
+        Three fields need reading carefully:
+
+        * **Read the ``*Basis`` field before believing a null timestamp.**
+          ``None`` with ``"none"`` means *nothing records this* — true of
+          ``rotatedAt`` on eight of the nine sources, because no table has a
+          rotated-at column. ``None`` with ``"column"`` or ``"derived"``
+          means we looked and it genuinely has not happened.
+        * ``headerNames`` is ``[]`` on kinds that have no headers, but
+          **``None`` means the encrypted bag could not be decrypted** — a
+          distinct and actionable fact about a rotated encryption key.
+        * ``rotateRoute`` is a literal ``"VERB /v1/..."`` with ids already
+          substituted, or ``None`` where rotation takes more than one call.
+
+        ``status: "inactive"`` does **not** mean safe to ignore: the material
+        is still live.
+
+        **Check ``truncated`` before concluding a credential does not
+        exist.** ``True`` means at least one source hit its 250-row cap and
+        the census is incomplete.
+        """
+        return self._get_obj("/v1/workspace/secrets")
+
+
 __all__ = ["Workspace"]

@@ -103,6 +103,75 @@ class Macros(Resource):
         payload.update(extra)
         return self._post_obj("/v1/macros", payload)
 
+    def get(self, macro_id: str) -> JsonDict:
+        """One macro by id.
+
+        A missing macro is a 404 — and so is **somebody else's
+        ``personal``-scope macro**, because the row is hidden by a row-level
+        security policy rather than refused by a permission check. You cannot
+        tell the two apart, which is deliberate: a 403 would confirm the
+        macro exists.
+
+        That has a consequence for an API key specifically. A key's
+        "user id" is the key's own id unless it is linked to a machine user,
+        so a key sees ``workspace`` and ``team`` macros and **never a
+        personal one** — not even one created by the agent who minted the
+        key.
+        """
+        return self._get_obj(f"/v1/{encode_path('macros', macro_id)}")
+
+    def actions(self) -> JsonDict:
+        """The action vocabulary a macro's ``actions`` may use.
+
+        Returns ``{"limit", "actions"}`` — **an object, not a list**. The
+        actions are under ``actions``, each
+        ``{"key", "label", "description", "permission"}``; eleven of them
+        today, and the list is shared with the conversation-action registry
+        rather than owned by macros.
+
+        ``limit`` is the ceiling on actions in **one** macro (16), not a page
+        size and not the number of action kinds. Read it instead of hard-coding
+        the number: :meth:`create` rejects a longer list with a 400, and
+        ``permission`` on each row tells you which grant an agent needs
+        before the action will run for them.
+
+        Static for the whole platform, so cache it rather than calling it per
+        macro form.
+        """
+        return self._get_obj("/v1/macros/actions")
+
+    def templates(self) -> JsonDict:
+        """The built-in macro starter templates.
+
+        Returns ``{"items", "total"}`` — **an object, not a list and not a
+        page**. ``total`` always equals ``len(items)``: the catalogue is a
+        frozen in-process array of 30 entries, so ``total`` is never a hint
+        that a second page exists.
+
+        Rows are a summary shape carrying ``bodyPreview`` rather than the
+        full ``body``; fetch one with :meth:`template` to get the text you
+        would actually store.
+        """
+        return self._get_obj("/v1/macros/templates")
+
+    def template(self, slug: str) -> JsonDict:
+        """One starter template, with its full body.
+
+        Returns ``{"slug", "name", "body", "category", "language", "tags"}``
+        plus ``actions`` and ``shortCode`` — and those last two are
+        **absent keys rather than nulls** when the template does not set
+        them, so use ``.get()``.
+
+        ``category`` is one of ``greeting``, ``acknowledgement``,
+        ``resolution``, ``billing``, ``support``, ``product``, ``lifecycle``,
+        ``compliance``.
+
+        An unknown slug is a 404. A template is a starting point, not a
+        macro: nothing exists in the workspace until you pass these fields
+        to :meth:`create`.
+        """
+        return self._get_obj(f"/v1/{encode_path('macros', 'templates', slug)}")
+
     def update(self, macro_id: str, **fields: Any) -> JsonDict:
         """Update a macro. Every field is optional.
 

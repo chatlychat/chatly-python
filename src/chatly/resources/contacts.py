@@ -245,6 +245,71 @@ class Contacts(Resource):
         )
 
 
+    def mood(self, contact_id: str, *, days: Optional[int] = None, **params: Any) -> JsonDict:
+        """A contact's sentiment trend, in weekly buckets.
+
+        Args:
+            days: **7**–365, default 90. **Rejected with a 400** below 7,
+                unlike :meth:`journey`, whose floor is 1 — the two windows on
+                the same resource do not agree, and this is the one that
+                refuses.
+
+        Returns ``{"contactId", "days", "sampleCount", "buckets"}``, where
+        ``days`` echoes what you asked so a chart can label itself.
+
+        **``buckets: []`` with a low ``sampleCount`` is the ordinary
+        not-enough-signal answer, not an error**: fewer than three scored
+        messages yields no buckets, and ``sampleCount`` is still populated so
+        you can say "not enough yet" rather than "neutral".
+
+        Buckets are weekly, snapped to **UTC Monday midnight**, ascending.
+        ``averageScore`` is a sentiment score rounded to three decimals and
+        **can be negative**.
+
+        It reads a cache the AI pipeline fills, so it reflects what has been
+        scored rather than live traffic. A contact outside the workspace is a
+        404.
+        """
+        return self._get_obj(
+            f"/v1/{encode_path('contacts', contact_id)}/mood",
+            {"days": days, **params},
+        )
+
+    def cards(
+        self, contact_id: str, *, conversation_id: Optional[str] = None
+    ) -> JsonDict:
+        """Render the workspace's customer cards for one contact. Answers 201.
+
+        Returns ``{"cards": [...]}``, each
+        ``{"key", "title", "state", "blocks", "text"}``.
+
+        **A POST, and a read.** Not cacheable, and a contact id beside a
+        conversation id in a query string would land in every access log next
+        to the contact's email — so the arguments travel in a body. The body
+        is strict, so ``conversation_id`` is the only thing it accepts.
+
+        ``state`` is where you look when a panel is empty: ``ok``, ``empty``,
+        ``missing``, ``invalid`` or ``error``. **``blocks: None`` is a real
+        value** meaning there is no data for this contact, not a failure, and
+        ``state`` distinguishes the five reasons.
+
+        ``cards: []`` means the workspace configured none — **and also that
+        the contact is not in this workspace**, because a missing contact
+        answers with an empty list rather than a 404.
+
+        This makes **live outbound HTTP** to the operator's own backend for
+        every uncached card, so expect it to be the slowest call in this
+        namespace. Configuration lives on
+        :class:`chatly.resources.customer_cards.CustomerCards`.
+        """
+        body: JsonDict = {}
+        if conversation_id is not None:
+            body["conversationId"] = conversation_id
+        return self._post_obj(
+            f"/v1/{encode_path('contacts', contact_id)}/cards", body
+        )
+
+
 def _compact(body: Mapping[str, Any]) -> JsonDict:
     """Drop ``None`` fields so an omitted argument is an absent key.
 

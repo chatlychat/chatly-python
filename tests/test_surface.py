@@ -8,6 +8,9 @@ this repo — a method pointing at the wrong path, and a path assembled with
 the right segments in the wrong order — and neither is visible to a gate
 that only greps for identifiers.
 
+The invocation table itself lives in :mod:`invocations`, which this module
+and :mod:`test_surface_lock` share.
+
 The expected table is built from ``packages/sdk-spec/surface.json`` when it
 is present (it is, in the monorepo) and falls back to an embedded copy
 otherwise, so the test still checks something from an extracted sdist. The
@@ -20,10 +23,11 @@ from __future__ import annotations
 import json
 import pathlib
 import unittest
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 import support
+from invocations import CALLS
 from support import build_client
 
 import chatly
@@ -34,135 +38,183 @@ TOKENS = {
     "tag": "TAG1",
     "slug": "SLUG1",
     "conversation_id": "CONV1",
+    "conversationId": "CONV1",
+    "contactId": "CONT1",
+    "messageId": "MSG1",
+    "deliveryId": "DEL1",
+    "provider": "openai",
+    # A real overridable kind: `EmailTemplates` checks the value locally, so
+    # a placeholder like "KIND1" would raise before a request was issued and
+    # the route would go unexercised.
+    "kind": "workspace_invite",
     "scheduled_id": "SCHED1",
 }
 
 #: The expected surface, embedded. ``(ns, name, http, path)``.
 EMBEDDED: List[Tuple[str, str, str, str]] = [
-    ("root", "whoami", "GET", "/v1/api-keys/whoami"),
-    ("contacts", "list", "GET", "/v1/contacts"),
-    ("contacts", "get", "GET", "/v1/contacts/{id}"),
-    ("contacts", "upsert", "POST", "/v1/contacts"),
-    ("contacts", "bulk_upsert", "POST", "/v1/contacts/bulk"),
-    ("contacts", "merge", "POST", "/v1/contacts/{id}/merge"),
+    ("ai", "add_provider", "POST", "/v1/ai-providers"),
+    ("ai", "create_tool", "POST", "/v1/ai/tools"),
+    ("ai", "delete_tool", "DELETE", "/v1/ai/tools/{id}"),
+    ("ai", "generate_tone", "POST", "/v1/ai/tone/generate"),
+    ("ai", "providers", "GET", "/v1/ai-providers"),
+    ("ai", "quota", "GET", "/v1/ai/quota"),
+    ("ai", "set_tone", "PUT", "/v1/ai/tone"),
+    ("ai", "test_provider", "POST", "/v1/ai-providers/{provider}/test"),
+    ("ai", "tone", "GET", "/v1/ai/tone"),
+    ("ai", "tone_preview", "GET", "/v1/ai/tone/preview"),
+    ("ai", "tools", "GET", "/v1/ai/tools"),
+    ("ai", "update_tool", "PATCH", "/v1/ai/tools/{id}"),
+    ("billing", "invoices", "GET", "/v1/billing/invoices"),
+    ("billing", "plans", "GET", "/v1/billing/plans"),
+    ("billing", "summary", "GET", "/v1/billing"),
+    ("billing", "usage", "GET", "/v1/billing/usage"),
+    ("billing", "usage_daily", "GET", "/v1/billing/usage/daily"),
+    ("billing", "usage_monthly", "GET", "/v1/billing/usage/monthly"),
+    ("bot_routes", "create", "POST", "/v1/bot-routes"),
+    ("bot_routes", "delete", "DELETE", "/v1/bot-routes/{id}"),
+    ("bot_routes", "fields", "GET", "/v1/bot-routes/fields"),
+    ("bot_routes", "list", "GET", "/v1/bot-routes"),
+    ("bot_routes", "resolve", "POST", "/v1/bot-routes/resolve"),
+    ("bot_routes", "update", "PATCH", "/v1/bot-routes/{id}"),
+    ("bots", "analytics", "GET", "/v1/bots/{id}/analytics"),
+    ("bots", "create", "POST", "/v1/bots"),
+    ("bots", "deliveries", "GET", "/v1/bots/{id}/deliveries"),
+    ("bots", "delivery", "GET", "/v1/bots/{id}/deliveries/{deliveryId}"),
+    ("bots", "get", "GET", "/v1/bots/{id}"),
+    ("bots", "list", "GET", "/v1/bots"),
+    ("bots", "redeliver", "POST", "/v1/bots/{id}/deliveries/{deliveryId}/redeliver"),
+    ("bots", "rotate_external_secret", "POST", "/v1/bots/{id}/external/rotate-secret"),
+    ("bots", "test_delivery", "POST", "/v1/bots/{id}/test-delivery"),
+    ("bots", "update", "PATCH", "/v1/bots/{id}"),
+    ("bots", "update_external", "PATCH", "/v1/bots/{id}/external"),
+    ("brands", "create", "POST", "/v1/brands"),
+    ("brands", "delete", "DELETE", "/v1/brands/{id}"),
+    ("brands", "list", "GET", "/v1/brands"),
+    ("brands", "update", "PATCH", "/v1/brands/{id}"),
+    ("canvas_steps", "get", "GET", "/v1/canvas-steps/{id}"),
+    ("canvas_steps", "resolve", "POST", "/v1/canvas-steps/{id}/resolve"),
+    ("channels", "adapters", "GET", "/v1/channels/adapters"),
+    ("channels", "create", "POST", "/v1/channels"),
+    ("channels", "get", "GET", "/v1/channels/{id}"),
+    ("channels", "list", "GET", "/v1/channels"),
+    ("channels", "rotate_secret", "POST", "/v1/channels/{id}/secret/rotate"),
+    ("channels", "update", "PATCH", "/v1/channels/{id}"),
     ("contacts", "add_tags", "POST", "/v1/contacts/{id}/tags"),
+    ("contacts", "bulk_upsert", "POST", "/v1/contacts/bulk"),
+    ("contacts", "cards", "POST", "/v1/contacts/{contactId}/cards"),
+    ("contacts", "get", "GET", "/v1/contacts/{id}"),
+    ("contacts", "journey", "GET", "/v1/contacts/{id}/journey"),
+    ("contacts", "list", "GET", "/v1/contacts"),
+    ("contacts", "merge", "POST", "/v1/contacts/{id}/merge"),
+    ("contacts", "mood", "GET", "/v1/contacts/{id}/mood"),
     ("contacts", "remove_tag", "DELETE", "/v1/contacts/{id}/tags/{tag}"),
     ("contacts", "unsubscribe", "POST", "/v1/contacts/{id}/unsubscribe"),
-    ("contacts", "journey", "GET", "/v1/contacts/{id}/journey"),
-    ("conversations", "list", "GET", "/v1/conversations"),
-    ("conversations", "get", "GET", "/v1/conversations/{id}"),
-    ("conversations", "messages", "GET", "/v1/conversations/{id}/messages"),
-    ("conversations", "send", "POST", "/v1/conversations/{id}/messages"),
-    ("conversations", "unattended", "GET", "/v1/conversations/unattended"),
+    ("contacts", "upsert", "POST", "/v1/contacts"),
     ("conversations", "agent_handling", "GET", "/v1/conversations/{id}/agent-handling"),
-    ("conversations", "set_agent_handling", "PUT", "/v1/conversations/{id}/agent-handling"),
-    ("conversations", "generated_replies", "GET", "/v1/conversations/{id}/generated-replies"),
+    ("conversations", "cancel_scheduled", "DELETE", "/v1/conversations/scheduled-messages/{scheduled_id}"),
     ("conversations", "generate_reply", "POST", "/v1/conversations/{id}/generated-replies"),
-    ("conversations", "scheduled_messages", "GET", "/v1/conversations/{id}/scheduled-messages"),
+    ("conversations", "generated_replies", "GET", "/v1/conversations/{id}/generated-replies"),
+    ("conversations", "get", "GET", "/v1/conversations/{id}"),
+    ("conversations", "linked", "GET", "/v1/conversations/{id}/linked"),
+    ("conversations", "list", "GET", "/v1/conversations"),
+    ("conversations", "messages", "GET", "/v1/conversations/{id}/messages"),
+    ("conversations", "outcomes", "GET", "/v1/conversations/{id}/outcomes"),
+    ("conversations", "record_outcome", "POST", "/v1/conversations/{id}/outcomes"),
+    ("conversations", "return_to_bot", "POST", "/v1/conversations/{id}/return-to-bot"),
     ("conversations", "schedule_message", "POST", "/v1/conversations/{id}/scheduled-messages"),
-    (
-        "conversations",
-        "cancel_scheduled",
-        "DELETE",
-        "/v1/conversations/scheduled-messages/{scheduled_id}",
-    ),
-    ("tickets", "list", "GET", "/v1/tickets"),
-    ("tickets", "comments", "GET", "/v1/tickets/{id}/comments"),
-    ("tickets", "for_conversation", "GET", "/v1/tickets/for-conversation/{conversation_id}"),
-    ("tickets", "queues", "GET", "/v1/tickets/queues"),
-    ("tickets", "merge", "POST", "/v1/tickets/{id}/merge"),
-    ("tickets", "split", "POST", "/v1/tickets/{id}/split"),
-    ("tickets", "bulk", "POST", "/v1/tickets/bulk"),
-    ("macros", "list", "GET", "/v1/macros"),
-    ("macros", "create", "POST", "/v1/macros"),
-    ("macros", "update", "PATCH", "/v1/macros/{id}"),
-    ("macros", "delete", "DELETE", "/v1/macros/{id}"),
-    ("kb", "articles", "GET", "/v1/kb/articles"),
-    ("kb", "article", "GET", "/v1/kb/articles/{slug}"),
-    ("kb", "collections", "GET", "/v1/kb/collections"),
-    ("search", "query", "GET", "/v1/search"),
-    ("events", "track", "POST", "/v1/cdp/events"),
+    ("conversations", "scheduled_messages", "GET", "/v1/conversations/{id}/scheduled-messages"),
+    ("conversations", "send", "POST", "/v1/conversations/{id}/messages"),
+    ("conversations", "set_agent_handling", "PUT", "/v1/conversations/{id}/agent-handling"),
+    ("conversations", "unattended", "GET", "/v1/conversations/unattended"),
+    ("conversations", "unread_counts", "GET", "/v1/conversations/unread-counts"),
+    ("conversations", "update_blocks", "PATCH", "/v1/conversations/{id}/messages/{messageId}/blocks"),
+    ("customer_card_endpoints", "activate_secret", "POST", "/v1/customer-card-endpoints/{id}/activate-secret"),
+    ("customer_card_endpoints", "create", "POST", "/v1/customer-card-endpoints"),
+    ("customer_card_endpoints", "delete", "DELETE", "/v1/customer-card-endpoints/{id}"),
+    ("customer_card_endpoints", "list", "GET", "/v1/customer-card-endpoints"),
+    ("customer_card_endpoints", "rotate_secret", "POST", "/v1/customer-card-endpoints/{id}/rotate-secret"),
+    ("customer_cards", "create", "POST", "/v1/customer-cards"),
+    ("customer_cards", "delete", "DELETE", "/v1/customer-cards/{id}"),
+    ("customer_cards", "list", "GET", "/v1/customer-cards"),
+    ("customer_cards", "rotate_secret", "POST", "/v1/customer-cards/{id}/rotate-secret"),
+    ("customer_cards", "update", "PATCH", "/v1/customer-cards/{id}"),
+    ("docs_sources", "create", "POST", "/v1/docs-sources"),
+    ("docs_sources", "delete", "DELETE", "/v1/docs-sources/{id}"),
+    ("docs_sources", "discover", "POST", "/v1/docs-sources/discover"),
+    ("docs_sources", "list", "GET", "/v1/docs-sources"),
+    ("docs_sources", "providers", "GET", "/v1/docs-sources/providers"),
+    ("docs_sources", "sync", "POST", "/v1/docs-sources/{id}/sync"),
+    ("docs_sources", "update", "PATCH", "/v1/docs-sources/{id}"),
+    ("docs_sources", "webhook", "POST", "/v1/docs-sources/{id}/webhook"),
+    ("email_templates", "delete", "DELETE", "/v1/email-templates/{kind}"),
+    ("email_templates", "list", "GET", "/v1/email-templates"),
+    ("email_templates", "preview", "POST", "/v1/email-templates/preview"),
+    ("email_templates", "update", "PUT", "/v1/email-templates/{kind}"),
     ("events", "list", "GET", "/v1/cdp/events"),
+    ("events", "track", "POST", "/v1/cdp/events"),
+    ("kb", "article", "GET", "/v1/kb/articles/{slug}"),
+    ("kb", "articles", "GET", "/v1/kb/articles"),
+    ("kb", "collections", "GET", "/v1/kb/collections"),
+    ("knowledge_gaps", "draft", "POST", "/v1/knowledge-gaps/{id}/draft"),
+    ("knowledge_gaps", "list", "GET", "/v1/knowledge-gaps"),
+    ("knowledge_gaps", "update", "PATCH", "/v1/knowledge-gaps/{id}"),
+    ("macros", "actions", "GET", "/v1/macros/actions"),
+    ("macros", "create", "POST", "/v1/macros"),
+    ("macros", "delete", "DELETE", "/v1/macros/{id}"),
+    ("macros", "get", "GET", "/v1/macros/{id}"),
+    ("macros", "list", "GET", "/v1/macros"),
+    ("macros", "template", "GET", "/v1/macros/templates/{slug}"),
+    ("macros", "templates", "GET", "/v1/macros/templates"),
+    ("macros", "update", "PATCH", "/v1/macros/{id}"),
+    ("reports", "agents", "GET", "/v1/reports/agents"),
+    ("reports", "attribution", "GET", "/v1/reports/attribution"),
+    ("reports", "cohorts", "GET", "/v1/reports/cohorts"),
+    ("reports", "conversations_by_day", "GET", "/v1/reports/conversations-by-day"),
+    ("reports", "labels", "GET", "/v1/reports/labels"),
+    ("reports", "overview", "GET", "/v1/reports/overview"),
+    ("reports", "response_times", "GET", "/v1/reports/response-times"),
+    ("reports", "sla", "GET", "/v1/reports/sla"),
+    ("reports", "sources", "GET", "/v1/reports/sources"),
+    ("reports", "teams", "GET", "/v1/reports/teams"),
+    ("reports", "theme_conversations", "GET", "/v1/reports/themes/{id}/conversations"),
+    ("reports", "themes", "GET", "/v1/reports/themes"),
+    ("reports", "voice", "GET", "/v1/reports/voice"),
+    ("root", "me", "GET", "/v1/me"),
+    ("root", "whoami", "GET", "/v1/api-keys/whoami"),
+    ("search", "query", "GET", "/v1/search"),
+    ("tickets", "bulk", "POST", "/v1/tickets/bulk"),
+    ("tickets", "comments", "GET", "/v1/tickets/{id}/comments"),
+    ("tickets", "conversations", "GET", "/v1/tickets/{id}/conversations"),
+    ("tickets", "for_conversation", "GET", "/v1/tickets/for-conversation/{conversation_id}"),
+    ("tickets", "lineage", "GET", "/v1/tickets/{id}/lineage"),
+    ("tickets", "list", "GET", "/v1/tickets"),
+    ("tickets", "merge", "POST", "/v1/tickets/{id}/merge"),
+    ("tickets", "open_count", "GET", "/v1/tickets/open-count/{conversationId}"),
+    ("tickets", "queues", "GET", "/v1/tickets/queues"),
+    ("tickets", "split", "POST", "/v1/tickets/{id}/split"),
+    ("tickets", "status_history", "GET", "/v1/tickets/{id}/status-history"),
+    ("tickets", "time", "GET", "/v1/tickets/{id}/time"),
+    ("triggers", "create", "POST", "/v1/triggers"),
+    ("triggers", "delete", "DELETE", "/v1/triggers/{id}"),
+    ("triggers", "list", "GET", "/v1/triggers"),
+    ("webhooks", "create", "POST", "/v1/webhooks"),
+    ("webhooks", "delete", "DELETE", "/v1/webhooks/{id}"),
     ("webhooks", "deliveries", "GET", "/v1/webhooks/deliveries"),
     ("webhooks", "delivery", "GET", "/v1/webhooks/deliveries/{id}"),
+    ("webhooks", "events", "GET", "/v1/webhooks/events"),
+    ("webhooks", "list", "GET", "/v1/webhooks"),
     ("webhooks", "redeliver", "POST", "/v1/webhooks/deliveries/{id}/redeliver"),
-    ("reports", "overview", "GET", "/v1/reports/overview"),
-    ("reports", "agents", "GET", "/v1/reports/agents"),
-    ("reports", "conversations_by_day", "GET", "/v1/reports/conversations-by-day"),
-    ("reports", "sla", "GET", "/v1/reports/sla"),
-    ("channels", "list", "GET", "/v1/channels"),
-    ("channels", "get", "GET", "/v1/channels/{id}"),
-    ("billing", "plans", "GET", "/v1/billing/plans"),
-    ("billing", "usage", "GET", "/v1/billing/usage"),
-    ("workspace", "settings", "GET", "/v1/workspace/settings"),
-    ("workspace", "labels", "GET", "/v1/labels"),
-    ("workspace", "inboxes", "GET", "/v1/inboxes"),
-    ("workspace", "team_members", "GET", "/v1/teams/{id}/members"),
+    ("webhooks", "schema_versions", "GET", "/v1/webhooks/schema-versions"),
+    ("webhooks", "set_schema_version", "PATCH", "/v1/webhooks/{id}/schema-version"),
     ("workspace", "agent_skills", "GET", "/v1/agents/skills"),
+    ("workspace", "inboxes", "GET", "/v1/inboxes"),
+    ("workspace", "key_scopes", "GET", "/v1/api-keys/scopes"),
+    ("workspace", "labels", "GET", "/v1/labels"),
+    ("workspace", "mine", "GET", "/v1/workspaces/me"),
+    ("workspace", "secrets", "GET", "/v1/workspace/secrets"),
+    ("workspace", "settings", "GET", "/v1/workspace/settings"),
+    ("workspace", "team_members", "GET", "/v1/teams/{id}/members"),
 ]
-
-#: How to invoke each entry with throwaway arguments. One per surface entry.
-CALLS: Dict[Tuple[str, str], Callable[[Any], Any]] = {
-    ("root", "whoami"): lambda c: c.whoami(),
-    ("contacts", "list"): lambda c: c.contacts.list(),
-    ("contacts", "get"): lambda c: c.contacts.get("ID1"),
-    ("contacts", "upsert"): lambda c: c.contacts.upsert(email="a@example.com"),
-    ("contacts", "bulk_upsert"): lambda c: c.contacts.bulk_upsert([{"email": "a@example.com"}]),
-    ("contacts", "merge"): lambda c: c.contacts.merge("ID1", "ID2"),
-    ("contacts", "add_tags"): lambda c: c.contacts.add_tags("ID1", "vip"),
-    ("contacts", "remove_tag"): lambda c: c.contacts.remove_tag("ID1", "TAG1"),
-    ("contacts", "unsubscribe"): lambda c: c.contacts.unsubscribe("ID1"),
-    ("contacts", "journey"): lambda c: c.contacts.journey("ID1"),
-    ("conversations", "list"): lambda c: c.conversations.list(),
-    ("conversations", "get"): lambda c: c.conversations.get("ID1"),
-    ("conversations", "messages"): lambda c: c.conversations.messages("ID1"),
-    ("conversations", "send"): lambda c: c.conversations.send("ID1", "hello"),
-    ("conversations", "unattended"): lambda c: c.conversations.unattended(),
-    ("conversations", "agent_handling"): lambda c: c.conversations.agent_handling("ID1"),
-    ("conversations", "set_agent_handling"): lambda c: c.conversations.set_agent_handling(
-        "ID1", "handled"
-    ),
-    ("conversations", "generated_replies"): lambda c: c.conversations.generated_replies("ID1"),
-    ("conversations", "generate_reply"): lambda c: c.conversations.generate_reply("ID1", "draft"),
-    ("conversations", "scheduled_messages"): lambda c: c.conversations.scheduled_messages("ID1"),
-    ("conversations", "schedule_message"): lambda c: c.conversations.schedule_message(
-        "ID1", "later", "2026-10-13T09:00:00Z"
-    ),
-    ("conversations", "cancel_scheduled"): lambda c: c.conversations.cancel_scheduled("SCHED1"),
-    ("tickets", "list"): lambda c: c.tickets.list(),
-    ("tickets", "comments"): lambda c: c.tickets.comments("ID1"),
-    ("tickets", "for_conversation"): lambda c: c.tickets.for_conversation("CONV1"),
-    ("tickets", "queues"): lambda c: c.tickets.queues(),
-    ("tickets", "merge"): lambda c: c.tickets.merge("ID1", "ID2"),
-    ("tickets", "split"): lambda c: c.tickets.split("ID1", "Spun off"),
-    ("tickets", "bulk"): lambda c: c.tickets.bulk(["ID1"], "status", {"status": "open"}),
-    ("macros", "list"): lambda c: c.macros.list(),
-    ("macros", "create"): lambda c: c.macros.create(name="Thanks", scope="workspace", body="ta"),
-    ("macros", "update"): lambda c: c.macros.update("ID1", name="Thanks again"),
-    ("macros", "delete"): lambda c: c.macros.delete("ID1"),
-    ("kb", "articles"): lambda c: c.kb.articles(),
-    ("kb", "article"): lambda c: c.kb.article("SLUG1"),
-    ("kb", "collections"): lambda c: c.kb.collections(),
-    ("search", "query"): lambda c: c.search.query("refund"),
-    ("events", "track"): lambda c: c.events.track("ID1", "trial_started"),
-    ("events", "list"): lambda c: c.events.list(),
-    ("webhooks", "deliveries"): lambda c: c.webhooks.deliveries(),
-    ("webhooks", "delivery"): lambda c: c.webhooks.delivery("ID1"),
-    ("webhooks", "redeliver"): lambda c: c.webhooks.redeliver("ID1"),
-    ("reports", "overview"): lambda c: c.reports.overview(),
-    ("reports", "agents"): lambda c: c.reports.agents(),
-    ("reports", "conversations_by_day"): lambda c: c.reports.conversations_by_day(),
-    ("reports", "sla"): lambda c: c.reports.sla(),
-    ("channels", "list"): lambda c: c.channels.list(),
-    ("channels", "get"): lambda c: c.channels.get("ID1"),
-    ("billing", "plans"): lambda c: c.billing.plans(),
-    ("billing", "usage"): lambda c: c.billing.usage("ai.tokens"),
-    ("workspace", "settings"): lambda c: c.workspace.settings(),
-    ("workspace", "labels"): lambda c: c.workspace.labels(),
-    ("workspace", "inboxes"): lambda c: c.workspace.inboxes(),
-    ("workspace", "team_members"): lambda c: c.workspace.team_members("ID1"),
-    ("workspace", "agent_skills"): lambda c: c.workspace.agent_skills(),
-}
 
 def _find_spec() -> pathlib.Path:
     """The manifest, in the monorepo or in a public mirror.
@@ -212,7 +264,10 @@ class SurfaceParity(unittest.TestCase):
 
     def test_the_table_is_not_empty_and_meets_the_floor(self) -> None:
         """A table that failed to load must fail, not pass vacuously."""
-        self.assertGreaterEqual(len(EMBEDDED), 55)
+        # 162, the whole key-accessible typed surface. The floor exists so
+        # that a manifest which stops parsing fails loudly instead of
+        # shrinking the audited set; it has only ever moved up.
+        self.assertGreaterEqual(len(EMBEDDED), 162)
         self.assertEqual(len(EMBEDDED), len(set(EMBEDDED)), "duplicate entries")
         self.assertEqual(
             len(CALLS), len(EMBEDDED), "every surface entry needs exactly one invocation"
@@ -293,7 +348,8 @@ class SurfaceParity(unittest.TestCase):
                 expected[namespace].add(f"iter_{entry['name']}")
 
         total_expected = sum(len(v) for v in expected.values())
-        # Floor, and the history of why it has moved. It was 8, then 7, now 10.
+        # Floor, and the history of why it has moved. 8, then 7, then 10,
+        # now 13.
         #
         #   8 -> 7   `macros.list` came out: `GET /v1/macros` is
         #            `@PaginationExempt` and answers with a bare array capped
@@ -301,6 +357,13 @@ class SurfaceParity(unittest.TestCase):
         #   7 -> 10  `contacts.journey`, `conversations.unattended` and
         #            `search.query` went in: all three return
         #            `{ items, nextCursor }` and had never been flagged.
+        #   10 -> 13 `bots.list`, `bots.deliveries` and `triggers.list` went
+        #            in with the rest of the surface. All three are built by
+        #            the API's shared `buildPaginatedResponse`, so they carry
+        #            `hasMore` beside the cursor — read off the handlers,
+        #            which is also how the manifest's own `$shapeMeans`
+        #            prose was found to undercount the `hasMore` routes at
+        #            four when there are six.
         #
         # Both moves were made on evidence read out of the handlers, not from
         # this file. The floor stays so that a manifest which silently stops
@@ -309,7 +372,7 @@ class SurfaceParity(unittest.TestCase):
         # conclude a route legitimately stopped paging.
         self.assertGreaterEqual(
             total_expected,
-            10,
+            13,
             "the paged set shrank below the floor; confirm surface.json parsed "
             "before concluding a route legitimately stopped paging",
         )
@@ -348,6 +411,7 @@ class SurfaceParity(unittest.TestCase):
             ("conversations", "iter_messages"): ("ID1",),
             ("contacts", "iter_journey"): ("ID1",),
             ("search", "iter_query"): ("refund",),
+            ("bots", "iter_deliveries"): ("ID1",),
         }
 
         checked = 0
@@ -366,7 +430,7 @@ class SurfaceParity(unittest.TestCase):
                     f"{ns_name}.{walker} made a request before it was iterated",
                 )
                 checked += 1
-        self.assertGreaterEqual(checked, 10, "the walk-check examined too few entries")
+        self.assertGreaterEqual(checked, 13, "the walk-check examined too few entries")
 
 
 if __name__ == "__main__":

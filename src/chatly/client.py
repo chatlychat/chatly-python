@@ -1,4 +1,4 @@
-"""The client. One object, thirteen namespaces, one escape hatch."""
+"""The client. One object, twenty-three namespaces, one escape hatch."""
 
 from __future__ import annotations
 
@@ -10,16 +10,27 @@ from ._transport import DEFAULT_API_URL, QueryParams, Requester, Transport
 from .errors import InvalidArgumentError
 from .pagination import Page, page_from_untyped_payload
 from .resources import (
+    AI,
     Billing,
+    BotRoutes,
+    Bots,
+    Brands,
+    CanvasSteps,
     Channels,
     Contacts,
     Conversations,
+    CustomerCardEndpoints,
+    CustomerCards,
+    DocsSources,
+    EmailTemplates,
     Events,
     KnowledgeBase,
+    KnowledgeGaps,
     Macros,
     Reports,
     Search,
     Tickets,
+    Triggers,
     Webhooks,
     Workspace,
 )
@@ -64,13 +75,25 @@ class ChatlyClient:
         tickets: :class:`~chatly.resources.tickets.Tickets`
         macros: :class:`~chatly.resources.macros.Macros`
         kb: :class:`~chatly.resources.kb.KnowledgeBase`
+        knowledge_gaps: :class:`~chatly.resources.knowledge_gaps.KnowledgeGaps`
         search: :class:`~chatly.resources.search.Search`
         events: :class:`~chatly.resources.events.Events`
         webhooks: :class:`~chatly.resources.webhook_deliveries.Webhooks`
+        triggers: :class:`~chatly.resources.triggers.Triggers`
         reports: :class:`~chatly.resources.reports.Reports`
         channels: :class:`~chatly.resources.channels.Channels`
+        brands: :class:`~chatly.resources.brands.Brands`
         billing: :class:`~chatly.resources.billing.Billing`
         workspace: :class:`~chatly.resources.workspace.Workspace`
+        ai: :class:`~chatly.resources.ai.AI`
+        bots: :class:`~chatly.resources.bots.Bots`
+        bot_routes: :class:`~chatly.resources.bot_routes.BotRoutes`
+        canvas_steps: :class:`~chatly.resources.canvas_steps.CanvasSteps`
+        customer_cards: :class:`~chatly.resources.customer_cards.CustomerCards`
+        customer_card_endpoints:
+            :class:`~chatly.resources.customer_card_endpoints.CustomerCardEndpoints`
+        docs_sources: :class:`~chatly.resources.docs_sources.DocsSources`
+        email_templates: :class:`~chatly.resources.email_templates.EmailTemplates`
 
     Thread safety: a client holds no per-request state, and the default
     transport builds one ``urllib`` opener that is used per call without
@@ -117,13 +140,24 @@ class ChatlyClient:
         self.tickets = Tickets(requester)
         self.macros = Macros(requester)
         self.kb = KnowledgeBase(requester)
+        self.knowledge_gaps = KnowledgeGaps(requester)
         self.search = Search(requester)
         self.events = Events(requester)
         self.webhooks = Webhooks(requester)
+        self.triggers = Triggers(requester)
         self.reports = Reports(requester)
         self.channels = Channels(requester)
+        self.brands = Brands(requester)
         self.billing = Billing(requester)
         self.workspace = Workspace(requester)
+        self.ai = AI(requester)
+        self.bots = Bots(requester)
+        self.bot_routes = BotRoutes(requester)
+        self.canvas_steps = CanvasSteps(requester)
+        self.customer_cards = CustomerCards(requester)
+        self.customer_card_endpoints = CustomerCardEndpoints(requester)
+        self.docs_sources = DocsSources(requester)
+        self.email_templates = EmailTemplates(requester)
 
     # ---- credential --------------------------------------------------
 
@@ -138,11 +172,45 @@ class ChatlyClient:
         grant for a ``ck_`` key, so you can check for ``contacts:write``
         before trying to use it.
 
-        ``GET /v1/api-keys/whoami`` is deliberately the only route on the
-        api-keys controller that an API key may call — managing keys with a
-        key is a privilege-escalation shape.
+        ``GET /v1/api-keys/whoami`` and ``GET /v1/api-keys/scopes``
+        (:meth:`chatly.resources.workspace.Workspace.key_scopes`) are the
+        only two routes on the api-keys controller an API key may call —
+        managing keys with a key is a privilege-escalation shape.
+
+        It needs ``workspace:read``. :meth:`me` answers the same thing for a
+        key with **no** scope requirement, which makes it the better probe
+        when you are not yet sure the key is scoped correctly; this method
+        exists in eight SDKs with this exact two-key shape and is kept for
+        that parity.
         """
         return as_object(self._requester.request("GET", "/v1/api-keys/whoami"))
+
+    def me(self) -> JsonDict:
+        """Describe the caller, whoever it is. The cheapest liveness check.
+
+        Returns a **discriminated** object: ``principal`` is ``"api_key"``
+        for a ``ck_`` credential and ``"user"`` for a signed-in person. For a
+        key the rest is exactly what :meth:`whoami` returns —
+        ``workspaceId`` and ``scopes`` — because there is no user behind a
+        key. Branch on ``principal`` rather than probing for keys.
+
+        **Prefer this over :meth:`whoami` as a first call.** The two answer
+        the same question for a key, and the difference is the one that
+        matters when something is wrong: ``whoami`` requires
+        ``workspace:read``, and this route requires **no scope at all**. A
+        key with a narrow or mis-set grant still gets a 200 here, and that
+        answer is true — whereas ``whoami`` would answer 403 and leave you
+        unable to tell a bad key from a key missing one scope.
+
+        It is also reachable on a **suspended** workspace, so it stays a
+        valid health probe while billing is in a bad state.
+
+        ``scopes`` is the credential's *effective* authority — closed under
+        the permission implications and intersected with the machine user's
+        membership where the key names one — not the raw list stored on the
+        key. That is the set the guard will really let through.
+        """
+        return as_object(self._requester.request("GET", "/v1/me"))
 
     # ---- idempotency -------------------------------------------------
 
@@ -203,8 +271,8 @@ class ChatlyClient:
     ) -> Any:
         """Call any endpoint, through the same auth, idempotency and retries.
 
-        Contract §8. 140 of the API's 886 routes accept an API key and 55
-        have a typed method here; the other 85 are reachable through this.
+        Contract §8. 174 of the API's 909 routes accept an API key and 162
+        have a typed method here; the rest are reachable through this.
         Without it, using one of them means abandoning the SDK and
         hand-rolling HTTP with a bearer token — and losing the retry policy
         and the typed errors with it.
@@ -235,7 +303,7 @@ class ChatlyClient:
     ) -> Page[JsonDict]:
         """One page from any cursor-paginated route, as a :class:`Page`.
 
-        The pagination half of the escape hatch — several of the 85 untyped
+        The pagination half of the escape hatch — some of the untyped
         key-accessible routes are paged, and a caller should not have to
         re-implement envelope parsing to walk one.
 
