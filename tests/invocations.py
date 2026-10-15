@@ -228,6 +228,8 @@ CALLS: Dict[Tuple[str, str], Callable[[Any], Any]] = {
         actions=[{"type": "send_message", "params": {"body": "hi"}}],
     ),
     ("triggers", "delete"): lambda c: c.triggers.delete("ID1"),
+    # -- visitors ------------------------------------------------------
+    ("visitors", "start_conversation"): lambda c: c.visitors.start_conversation("CONT1"),
     # -- webhooks ------------------------------------------------------
     ("webhooks", "deliveries"): lambda c: c.webhooks.deliveries(),
     ("webhooks", "delivery"): lambda c: c.webhooks.delivery("ID1"),

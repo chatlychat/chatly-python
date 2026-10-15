@@ -197,6 +197,7 @@ EMBEDDED: List[Tuple[str, str, str, str]] = [
     ("triggers", "create", "POST", "/v1/triggers"),
     ("triggers", "delete", "DELETE", "/v1/triggers/{id}"),
     ("triggers", "list", "GET", "/v1/triggers"),
+    ("visitors", "start_conversation", "POST", "/v1/visitors/{contactId}/start-conversation"),
     ("webhooks", "create", "POST", "/v1/webhooks"),
     ("webhooks", "delete", "DELETE", "/v1/webhooks/{id}"),
     ("webhooks", "deliveries", "GET", "/v1/webhooks/deliveries"),
@@ -264,10 +265,10 @@ class SurfaceParity(unittest.TestCase):
 
     def test_the_table_is_not_empty_and_meets_the_floor(self) -> None:
         """A table that failed to load must fail, not pass vacuously."""
-        # 162, the whole key-accessible typed surface. The floor exists so
+        # 163, the whole key-accessible typed surface. The floor exists so
         # that a manifest which stops parsing fails loudly instead of
         # shrinking the audited set; it has only ever moved up.
-        self.assertGreaterEqual(len(EMBEDDED), 162)
+        self.assertGreaterEqual(len(EMBEDDED), 163)
         self.assertEqual(len(EMBEDDED), len(set(EMBEDDED)), "duplicate entries")
         self.assertEqual(
             len(CALLS), len(EMBEDDED), "every surface entry needs exactly one invocation"

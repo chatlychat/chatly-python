@@ -1,4 +1,4 @@
-"""The client. One object, twenty-three namespaces, one escape hatch."""
+"""The client. One object, twenty-four namespaces, one escape hatch."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ from .resources import (
     Search,
     Tickets,
     Triggers,
+    Visitors,
     Webhooks,
     Workspace,
 )
@@ -94,6 +95,7 @@ class ChatlyClient:
             :class:`~chatly.resources.customer_card_endpoints.CustomerCardEndpoints`
         docs_sources: :class:`~chatly.resources.docs_sources.DocsSources`
         email_templates: :class:`~chatly.resources.email_templates.EmailTemplates`
+        visitors: :class:`~chatly.resources.visitors.Visitors`
 
     Thread safety: a client holds no per-request state, and the default
     transport builds one ``urllib`` opener that is used per call without
@@ -158,6 +160,7 @@ class ChatlyClient:
         self.customer_card_endpoints = CustomerCardEndpoints(requester)
         self.docs_sources = DocsSources(requester)
         self.email_templates = EmailTemplates(requester)
+        self.visitors = Visitors(requester)
 
     # ---- credential --------------------------------------------------
 
@@ -271,7 +274,7 @@ class ChatlyClient:
     ) -> Any:
         """Call any endpoint, through the same auth, idempotency and retries.
 
-        Contract §8. 174 of the API's 909 routes accept an API key and 162
+        Contract §8. 174 of the API's 909 routes accept an API key and 163
         have a typed method here; the rest are reachable through this.
         Without it, using one of them means abandoning the SDK and
         hand-rolling HTTP with a bearer token — and losing the retry policy

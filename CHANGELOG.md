@@ -8,6 +8,44 @@ listed here.
 
 ## Unreleased
 
+### Added
+
+- **`client.bots.rotate_external_secret(bot_id, activate_at=)`** — the
+  optional `activate_at` (sent as `{"activateAt": ...}`) defers the switch to
+  a new external-agent signing secret by up to 168 hours, so the old secret
+  keeps signing deliveries while you deploy the new one. A string passes
+  through verbatim; a `datetime` must be timezone-aware and is sent as its UTC
+  instant with a `Z` (a naive one raises `InvalidArgumentError` before any
+  request). The response now carries `activatesAt` — `None` when the new
+  secret is already signing. The no-argument call is unchanged, body `{}` and
+  all, and is still a hard cut.
+
+- **`client.visitors.start_conversation(contact_id)`** — the 163rd route, and
+  the first that reaches out to a contact who has not written. `POST
+/v1/visitors/{contactId}/start-conversation`, no body and no query
+  parameters, answering `{"conversationId"}`. It opened to API keys on
+  2026-10-14; before that it was documented and answered any `ck_` key with a 403.
+
+  Three things an integrator needs, all in the method's docstring. It is
+  **off by default per workspace**
+  (`settings.proactiveOutreach.apiKeysMayStartConversations`), enabled only
+  with a session-only `PATCH /v1/workspace/settings` and readable with
+  `client.workspace.settings()` — so a `PermissionDeniedError` here is more
+  likely the setting than the key's scopes. It is limited to **three per
+  contact per hour**, counted per contact rather than per caller, surfacing as
+  `RateLimitError`. That refusal sends no `Retry-After` header — the API's
+  exception filter sets none, and the hook that synthesises one only folds
+  `@nestjs/throttler`'s buckets — so the TTL arrives in the body at
+  `details.retryAfterSeconds`. `retry_after` is still populated, because
+  `errors.py` already falls back to that field; there is now a test pinning
+  that fallback, and a control proving a real header still wins over it. And an **offline visitor gets no
+  notification at all**: the greeting is persisted and rendered from history
+  on their next page view.
+
+  `GET /v1/visitors/live` and `GET /v1/visitors/{contactId}/pages` sit on the
+  same controller, carry no `@AllowApiKey()`, and so deliberately have no
+  method here.
+
 ### Changed
 
 - **A paged method now refuses a body that is not a page.**

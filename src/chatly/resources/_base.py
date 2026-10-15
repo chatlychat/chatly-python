@@ -58,7 +58,7 @@ def flag(value: Optional[bool]) -> Optional[str]:
 def as_list(payload: Any) -> List[JsonDict]:
     """Normalise a bare-array response.
 
-    Thirty-three of the 162 routes on the typed surface answer with a
+    Thirty-three of the 163 routes on the typed surface answer with a
     top-level JSON array rather than a ``{"items": ...}`` envelope — the ones
     the manifest marks ``shape: "array"``. They are ``@PaginationExempt`` and
     take no cursor at all. This keeps a caller's ``for`` loop correct if one
@@ -90,7 +90,7 @@ def as_object(payload: Any) -> JsonDict:
     is. Every method that promises a single object funnels through here
     instead of casting: a cast would make the type checker agree with a wrong
     assumption, and the assumption is wrong on this API often enough to
-    matter — 33 of the 162 typed routes answer with a top-level array, and
+    matter — 33 of the 163 typed routes answer with a top-level array, and
     confusing one of those for an object is a ``TypeError`` three frames away
     from the cause.
 

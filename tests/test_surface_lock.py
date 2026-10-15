@@ -15,7 +15,7 @@ over:
   ``encode_path('teams', team_id)`` and the string ``/v1/teams/`` appears
   nowhere in the file. A text scan reads that as "not implemented".
 
-The lock file is produced by calling all 162 methods through the in-process
+The lock file is produced by calling all 163 methods through the in-process
 fake transport and recording the request each one actually issued. A comment
 cannot emit an HTTP request, and a helper-built path shows up the same as a
 literal one, so the artifact is evidence rather than inference.
@@ -57,10 +57,11 @@ LOCK_PATH = pathlib.Path(__file__).resolve().parents[1] / "surface.lock.json"
 #:
 #: 55 until 2026-10-14, when the remaining key-accessible routes got typed
 #: methods — 104 of them, then three more (``webhooks.delete``, ``root.me``,
-#: ``workspace.mine``) once those were added to the manifest. It has only
-#: ever moved up, and it must: a drop means the manifest stopped parsing, not
-#: that the API shrank.
-FLOOR = 162
+#: ``workspace.mine``) once those were added to the manifest, and then
+#: ``visitors.start_conversation`` when that route opened to API keys later
+#: the same day. It has only ever moved up, and it must: a drop means the
+#: manifest stopped parsing, not that the API shrank.
+FLOOR = 163
 
 
 #: The four top-level response shapes. Every route on the surface is exactly
@@ -191,7 +192,7 @@ def sort_key(entry: Dict[str, Any]) -> Tuple[str, str]:
 
 
 class SurfaceLock(unittest.TestCase):
-    """Execute all 162 methods, write the lock, then assert on it.
+    """Execute all 163 methods, write the lock, then assert on it.
 
     Generation happens in :meth:`setUpClass` rather than in a test, because
     unittest orders a class's tests alphabetically: the tests that read the
@@ -433,12 +434,12 @@ class DeclaredShapes(unittest.TestCase):
         self.assertEqual(bad, {})
 
     def test_the_column_is_not_vacuous(self) -> None:
-        """A column of 162 ``object`` rows is unanimity about nothing.
+        """A column of 163 ``object`` rows is unanimity about nothing.
 
         Every other assertion in this file would pass it: the fixture would
         be an object, each method would be handed an object, and the lock
         would agree with itself. The distribution is the only thing that
-        notices, so it is pinned — 33 arrays, 13 pages, 115 objects and the
+        notices, so it is pinned — 33 arrays, 13 pages, 116 objects and the
         single real 204.
         """
         counts = {shape: 0 for shape in SHAPES}

@@ -1,4 +1,4 @@
-"""The response shape **this SDK's decoder expects** from each of the 162
+"""The response shape **this SDK's decoder expects** from each of the 163
 routes, declared by hand.
 
 ======================= READ THIS BEFORE CHANGING A VALUE ===============
@@ -237,6 +237,15 @@ EXPECTED_SHAPE: Dict[str, str] = {
     "triggers.list": "page",
     "triggers.create": "object",
     "triggers.delete": "object",  # 200 `{ok: true}`, not a 204
+    # -- visitors ------------------------------------------------------
+    # `{conversationId}`. No `@ZodResponse` on this handler at all, so the
+    # shape is read off the service it forwards to:
+    # `VisitorsService.startProactiveConversation(): Promise<{ conversationId:
+    # string }>`. An object, and emphatically not a page — nothing about a
+    # POST that creates one thing suggests a cursor, and the sibling that
+    # also answers a single created row (`conversations.send`) is an object
+    # for the same reason.
+    "visitors.start_conversation": "object",
     # -- webhooks ------------------------------------------------------
     "webhooks.deliveries": "page",
     "webhooks.delivery": "object",
@@ -261,17 +270,20 @@ EXPECTED_SHAPE: Dict[str, str] = {
     "workspace.mine": "array",
 }
 
-#: The distribution of the column above, from reading all 162
+#: The distribution of the column above, from reading all 163
 #: ``@ZodResponse`` schemas (55 on 2026-10-12, then 104 and finally 3 more on
 #: 2026-10-14 — ``webhooks.delete``, ``root.me`` and ``workspace.mine``,
 #: which were absent from the manifest's first 159 and each read at its
-#: handler here before being believed).
+#: handler here before being believed). A fourth went in later that same day:
+#: ``visitors.start_conversation``, which has no ``@ZodResponse`` and so was
+#: read off its service's declared return type instead — ``object``, taking
+#: that column from 115 to 116.
 #:
 #: Asserted, because every other assertion about this table would be
 #: satisfied by a column that said ``object`` one hundred and sixty-two
 #: times — unanimity about nothing. If the surface grows these numbers
 #: change, but all four shapes must stay represented and ``empty`` must stay
 #: at exactly one until a second real 204 genuinely ships.
-SHAPE_COUNTS = {"array": 33, "page": 13, "object": 115, "empty": 1}
+SHAPE_COUNTS = {"array": 33, "page": 13, "object": 116, "empty": 1}
 
 __all__ = ["EXPECTED_SHAPE", "SHAPE_COUNTS"]

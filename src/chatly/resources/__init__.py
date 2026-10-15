@@ -35,6 +35,7 @@ from .reports import Reports
 from .search import Search
 from .tickets import Tickets
 from .triggers import Triggers
+from .visitors import Visitors
 from .webhook_deliveries import Webhooks
 from .workspace import Workspace
 
@@ -63,6 +64,7 @@ __all__ = [
     "Search",
     "Tickets",
     "Triggers",
+    "Visitors",
     "Webhooks",
     "Workspace",
 ]

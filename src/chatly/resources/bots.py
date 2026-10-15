@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 from typing import Any, Iterator, Optional, Sequence, Union
 
 from .._transport import encode_path
+from ..errors import InvalidArgumentError
 from ..pagination import Page
 from ._base import CsvValue, JsonDict, Resource, csv
 
@@ -13,6 +15,31 @@ from ._base import CsvValue, JsonDict, Resource, csv
 #: ``failed`` **will** be retried; ``dead`` will not. That is the whole
 #: distinction, and it is the one worth acting on.
 DELIVERY_STATUSES = ("pending", "delivered", "failed", "dead")
+
+
+def _instant(value: Union[str, _dt.datetime]) -> str:
+    """An ``activateAt`` value as the wire sees it.
+
+    A string is the caller's own ISO-8601 and goes through untouched — the
+    server's schema is the authority on what it accepts. A datetime must be
+    aware: a naive one has no zone, and guessing (local? UTC?) would shift
+    the switch by hours with no error anywhere. It is converted to UTC and
+    written with ``Z`` rather than ``+00:00``.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, _dt.datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise InvalidArgumentError(
+                "activate_at is a naive datetime; pass a timezone-aware one "
+                "(e.g. datetime.now(timezone.utc)) or an ISO-8601 string with "
+                "an offset — a naive value has no zone to convert from"
+            )
+        utc = value.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+        return utc.isoformat() + "Z"
+    raise InvalidArgumentError(
+        f"activate_at must be a str or a timezone-aware datetime, got {type(value).__name__}"
+    )
 
 
 class Bots(Resource):
@@ -180,26 +207,59 @@ class Bots(Resource):
             f"/v1/{encode_path('bots', bot_id)}/external", dict(fields)
         )
 
-    def rotate_external_secret(self, bot_id: str) -> JsonDict:
+    def rotate_external_secret(
+        self,
+        bot_id: str,
+        *,
+        activate_at: Union[None, str, _dt.datetime] = None,
+    ) -> JsonDict:
         """Mint a new signing secret for an external agent. Answers 201.
 
-        Returns ``{"signingSecret": "..."}`` and that is the **only** time
-        the value is ever readable.
+        Returns ``{"signingSecret": "...", "activatesAt": ...}``, and that is
+        the **only** time the secret is ever readable.
 
-        **There is no overlap window.** The old secret stops verifying the
-        instant this returns, so deliveries signed with it begin failing
-        immediately — deploy the new value at your endpoint as part of the
-        same change, not afterwards. (Contrast
+        Args:
+            activate_at: when the new secret starts signing deliveries. Sent
+                on the wire as ``activateAt``. An ISO-8601 string (with ``Z``
+                or an offset) passes through verbatim and the server validates
+                it; a :class:`datetime.datetime` must be **timezone-aware** and
+                is sent as its UTC instant with a trailing ``Z``. A naive
+                datetime raises :class:`~chatly.InvalidArgumentError` (a
+                ``ValueError``) before anything is sent, because there is no
+                way to know which zone it meant. More than 168 hours ahead of
+                the *server's* clock is a 400; an instant already in the past
+                is a hard cut rather than an error.
+
+        **Without** ``activate_at`` there is no overlap window — exactly what
+        this route has always done. The old secret stops signing the instant
+        this returns, so deploy the new value at your endpoint as part of the
+        same change, not afterwards; ``activatesAt`` is ``None``. The request
+        body in that case is ``{}``, byte-for-byte what it was before this
+        parameter existed.
+
+        **With** ``activate_at`` the old secret goes on signing every delivery
+        until that instant and the new one signs from then on, so
+        ``activatesAt`` comes back as the switch instant. Each delivery
+        carries **one** signature, never two, so the window is for *your
+        verifier* to hold both secrets — accept either until the switch, then
+        drop the old one. A deferred rotation on an agent that has no usable
+        secret today is still a hard cut and answers ``activatesAt: None``.
+
+        Read ``activatesAt``, not your own argument: ``None`` means the new
+        secret is already signing, whatever you asked for.
+
+        (Contrast
         :class:`chatly.resources.customer_card_endpoints.CustomerCardEndpoints`,
-        whose rotation is two-phase precisely because the receiver gets to
-        choose the moment.)
+        whose rotation is two-phase and receiver-driven rather than timed.)
 
         A replayed ``Idempotency-Key`` returns the cached body rather than
         minting a second secret, which is what makes a retry safe here.
         """
-        return self._post_obj(
-            f"/v1/{encode_path('bots', bot_id)}/external/rotate-secret"
-        )
+        path = f"/v1/{encode_path('bots', bot_id)}/external/rotate-secret"
+        if activate_at is None:
+            # No body of our own: the transport sends `{}`, as it always has.
+            return self._post_obj(path)
+        return self._post_obj(path, {"activateAt": _instant(activate_at)})
 
     def analytics(self, bot_id: str, *, days: Optional[int] = None, **params: Any) -> JsonDict:
         """One bot's volume, latency, reliability and outcomes.

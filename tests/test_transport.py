@@ -626,7 +626,3 @@ class NamespaceSpecifics(unittest.TestCase):
             self._raw_query(transport),
             "filter=status%3Aeq%3Aopen&filter=priority%3Aeq%3Ahigh",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

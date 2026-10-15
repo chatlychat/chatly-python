@@ -78,7 +78,7 @@ is fine.
 
 ## What you can call
 
-162 methods, grouped by namespace — every key-accessible route the shared
+163 methods, grouped by namespace — every key-accessible route the shared
 manifest lists. Each one maps to a single endpoint; the response is decoded
 JSON (a `dict`, a `list`, or a `Page` — see [Pagination](#pagination)).
 
@@ -428,31 +428,37 @@ spend" is the mistake this shape exists to prevent.
 
 ### `client.bots` — personas, external agents, deliveries
 
-| Method                                     | Endpoint                                               |
-| ------------------------------------------ | ------------------------------------------------------ |
-| `list(cursor=, limit=, sort=, ...)`        | `GET /v1/bots`                                         |
-| `iter_list(...)`                           | auto-paginates the above                               |
-| `create(**fields)`                         | `POST /v1/bots`                                        |
-| `get(bot_id)` / `update(bot_id, **fields)` | `GET` / `PATCH /v1/bots/{id}`                          |
-| `update_external(bot_id, **fields)`        | `PATCH /v1/bots/{id}/external`                         |
-| `rotate_external_secret(bot_id)`           | `POST /v1/bots/{id}/external/rotate-secret`            |
-| `analytics(bot_id, days=)`                 | `GET /v1/bots/{id}/analytics`                          |
-| `deliveries(bot_id, status=, ...)`         | `GET /v1/bots/{id}/deliveries`                         |
-| `iter_deliveries(bot_id, ...)`             | auto-paginates the above                               |
-| `delivery(bot_id, delivery_id)`            | `GET /v1/bots/{id}/deliveries/{deliveryId}`            |
-| `redeliver(bot_id, delivery_id)`           | `POST /v1/bots/{id}/deliveries/{deliveryId}/redeliver` |
-| `test_delivery(bot_id)`                    | `POST /v1/bots/{id}/test-delivery`                     |
+| Method                                         | Endpoint                                               |
+| ---------------------------------------------- | ------------------------------------------------------ |
+| `list(cursor=, limit=, sort=, ...)`            | `GET /v1/bots`                                         |
+| `iter_list(...)`                               | auto-paginates the above                               |
+| `create(**fields)`                             | `POST /v1/bots`                                        |
+| `get(bot_id)` / `update(bot_id, **fields)`     | `GET` / `PATCH /v1/bots/{id}`                          |
+| `update_external(bot_id, **fields)`            | `PATCH /v1/bots/{id}/external`                         |
+| `rotate_external_secret(bot_id, activate_at=)` | `POST /v1/bots/{id}/external/rotate-secret`            |
+| `analytics(bot_id, days=)`                     | `GET /v1/bots/{id}/analytics`                          |
+| `deliveries(bot_id, status=, ...)`             | `GET /v1/bots/{id}/deliveries`                         |
+| `iter_deliveries(bot_id, ...)`                 | auto-paginates the above                               |
+| `delivery(bot_id, delivery_id)`                | `GET /v1/bots/{id}/deliveries/{deliveryId}`            |
+| `redeliver(bot_id, delivery_id)`               | `POST /v1/bots/{id}/deliveries/{deliveryId}/redeliver` |
+| `test_delivery(bot_id)`                        | `POST /v1/bots/{id}/test-delivery`                     |
 
 `create` has **two disjoint bodies** chosen by `type`, and neither half is
 strict — a field from the wrong one is silently dropped, so
 `create(type="external", systemPrompt=...)` is a 201 with no prompt. The
 external response is the only place `signingSecret` and `token` appear.
 
-`rotate_external_secret` has **no overlap window**: the old secret stops
-verifying the instant it returns. On `analytics`, every rate is `None` rather
-than 0 when its sample is empty, and `latency.basis` tells you whether you
-are looking at a whole agent run or one HTTP round trip — the two are not
-comparable.
+`rotate_external_secret(bot_id)` with no `activate_at` is a **hard cut**: the
+old secret stops signing the instant it returns, and `activatesAt` comes back
+`None`. Pass `activate_at` — an ISO-8601 string, or a timezone-aware
+`datetime` (a naive one raises before anything is sent), at most 168 hours
+ahead — and the old secret keeps signing every delivery until that instant,
+which comes back as `activatesAt`. Each delivery still carries one signature,
+so the window is for your verifier to accept both secrets until the switch.
+
+On `analytics`, every rate is `None` rather than 0 when its sample is empty,
+and `latency.basis` tells you whether you are looking at a whole agent run or
+one HTTP round trip — the two are not comparable.
 
 ### `client.bot_routes` — which bot answers
 
@@ -597,6 +603,42 @@ both arms. `enabled` is required by the schema and ignored by the
 dispatcher, so delete a trigger you want stopped; the delete is hard, with no
 undo. `event_type` is not validated against the catalogue, so a typo creates
 a trigger that never fires.
+
+### `client.visitors` — starting a conversation first
+
+| Method                           | Endpoint                                           |
+| -------------------------------- | -------------------------------------------------- |
+| `start_conversation(contact_id)` | `POST /v1/visitors/{contactId}/start-conversation` |
+
+Returns `{"conversationId"}`. Takes no body and no query parameters — the
+contact id is the whole input.
+
+**A `PermissionDeniedError` here is probably not your scopes.** Proactive
+outreach is off by default per workspace
+(`settings.proactiveOutreach.apiKeysMayStartConversations`); an owner or admin
+enables it with `PATCH /v1/workspace/settings`, which needs a signed-in person
+and is not reachable from this SDK. `client.workspace.settings()` reads the
+current value and is. `conversations:write` was already grantable and is
+already held by keys minted for ticket bulk actions, so the scope is not the
+opt-in — check the setting first.
+
+Then two limits worth designing around. **Three per contact per hour**,
+counted per contact rather than per caller, so the fourth raises
+`RateLimitError` with `retry_after` set. That refusal sends **no
+`Retry-After` header** — the TTL travels in the body at
+`error.details["retryAfterSeconds"]`, and this SDK reads it from there when
+the header is absent, so `retry_after` is populated either way. (The route
+also inherits the global ceilings, 30 per second and 100 per fifteen minutes,
+and a 429 from those does carry the header.)
+
+And **an offline visitor is not notified**: the greeting is persisted and the
+widget renders it from history on their next page view, with no email, push or
+provider message. Reaching someone who has left the site wants an email or SMS
+conversation instead.
+
+`GET /v1/visitors/live` and `GET /v1/visitors/{contactId}/pages` are on the
+same controller and are **not** key-accessible, so they have no method here —
+one that always answered 403 would be worse than none.
 
 ## Error handling
 
@@ -848,7 +890,7 @@ environment variable that never got set.
 
 ## The escape hatch
 
-162 endpoints have a typed method here — every route the shared manifest
+163 endpoints have a typed method here — every route the shared manifest
 lists. 174 of the API's 909 routes accept an API key, so a handful still do
 not have one: routes added since the manifest was last audited, and the ones
 whose shape did not justify a method. `client.request(...)` reaches any of
@@ -919,7 +961,7 @@ python3 -m mypy
 ```
 
 Running the suite also regenerates `surface.lock.json`, which records the
-`METHOD /path` every one of the 162 methods actually issued, plus the
+`METHOD /path` every one of the 163 methods actually issued, plus the
 response shape this package declares for it. It is produced by
 executing the client against an in-process fake transport, so it is evidence
 rather than a source scan — a doc comment cannot emit a request, and a path
