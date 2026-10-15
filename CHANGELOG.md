@@ -10,6 +10,24 @@ listed here.
 
 ### Added
 
+- **`chatly.verify_chatly_signature(surface, body, headers, secret, ...)`** —
+  one verifier for every signed request Chatly sends: the eight surfaces in
+  `chatly.CHATLY_SIGNATURE_SURFACES` (event webhooks, agent deliveries, AI
+  tool calls, canvas steps, customer cards, both workflow headers, and the
+  unified `x-chatly-signature-v2`). It returns a `ChatlySignatureResult`
+  carrying `ok`, `surface`, and either `timestamp_ms` / `base` /
+  `secret_index` or a stable `reason` (one of
+  `chatly.CHATLY_SIGNATURE_FAILURES`) and a printable `message`, and it never
+  raises. It takes a list of secrets for rotation, prefers the v2 header
+  when `method` and `path` are supplied (`v2="prefer"|"require"|"ignore"`),
+  refuses a duplicated signature header instead of trial-verifying it, and
+  refuses the timestamp-less legacy workflow header unless
+  `allow_unprotected_replay=True`. Also exported:
+  `CHATLY_SIGNATURE_TOLERANCE_SECONDS` (300), `CHATLY_V2_SIGNATURE_HEADER`
+  and `SurfaceSpec`. It is a port of the Node SDK's `verifyChatlySignature`
+  and runs the same cross-SDK corpus (`tests/signature_vectors.json`).
+  `verify_webhook_signature` is unchanged.
+
 - **`client.bots.rotate_external_secret(bot_id, activate_at=)`** — the
   optional `activate_at` (sent as `{"activateAt": ...}`) defers the switch to
   a new external-agent signing secret by up to 168 hours, so the old secret

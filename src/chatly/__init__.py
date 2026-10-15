@@ -23,6 +23,9 @@ What is in this package:
   :meth:`~ChatlyClient.whoami`, :meth:`~ChatlyClient.with_idempotency_key`
   and :meth:`~ChatlyClient.request`, the escape hatch to any endpoint.
 * :func:`verify_webhook_signature` — verify a delivery in your own handler.
+* :func:`verify_chatly_signature` — verify ANY signed request Chatly sends
+  (eight surfaces, the unified v2 header, key rotation), with a reason on
+  every refusal rather than a bare ``False``.
 * :func:`identity_hash` — the backend half of widget identity verification.
 * A typed error per HTTP failure mode; see :mod:`chatly.errors`.
 * :class:`Page` and the ``iter_*`` generators for cursor pagination.
@@ -59,6 +62,15 @@ from .errors import (
 from .identity import identity_hash
 from .pagination import Page, iter_items, iter_pages, page_from_payload
 from .retry import NO_RETRIES, RetryPolicy
+from .signatures import (
+    CHATLY_SIGNATURE_FAILURES,
+    CHATLY_SIGNATURE_SURFACES,
+    CHATLY_SIGNATURE_TOLERANCE_SECONDS,
+    CHATLY_V2_SIGNATURE_HEADER,
+    ChatlySignatureResult,
+    SurfaceSpec,
+    verify_chatly_signature,
+)
 from .webhooks import (
     DEFAULT_TOLERANCE_SECONDS,
     SIGNATURE_HEADER,
@@ -76,6 +88,13 @@ __all__ = [
     "verify_webhook_signature",
     "DEFAULT_TOLERANCE_SECONDS",
     "SIGNATURE_HEADER",
+    "verify_chatly_signature",
+    "ChatlySignatureResult",
+    "SurfaceSpec",
+    "CHATLY_SIGNATURE_FAILURES",
+    "CHATLY_SIGNATURE_SURFACES",
+    "CHATLY_SIGNATURE_TOLERANCE_SECONDS",
+    "CHATLY_V2_SIGNATURE_HEADER",
     # errors
     "APIError",
     "AuthenticationError",

@@ -859,6 +859,92 @@ chatly.verify_webhook_signature(body, signature_header, secret, tolerance=300, *
 
 Comparison is constant-time.
 
+## Verifying any signed request (`verify_chatly_signature`)
+
+`verify_webhook_signature` covers one header. Chatly signs requests on
+**eight** surfaces, and they do not agree: three send `x-chatly-signature`
+over three different strings, and two send their timestamp in
+**milliseconds**. `verify_chatly_signature` handles all eight, and tells you
+_why_ a request was refused instead of returning a bare `False`.
+
+```python
+import os
+import chatly
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.post("/hooks/chatly")
+def hook():
+    result = chatly.verify_chatly_signature(
+        "event_webhook",                          # which route this is — never inferred
+        request.get_data(),                       # the RAW bytes
+        request.headers,                          # any mapping; names are case-insensitive
+        os.environ["CHATLY_WEBHOOK_SECRET"],      # or a list of secrets mid-rotation
+        method=request.method,
+        path=request.full_path.rstrip("?"),       # pathname + query, no scheme or host
+    )
+    if not result.ok:
+        app.logger.warning("%s: %s", result.reason, result.message)
+        return "", 400
+    ...
+    return "", 204
+```
+
+```python
+chatly.verify_chatly_signature(
+    surface, body, headers, secret, *,
+    tolerance_seconds=None, method=None, path=None,
+    v2="prefer", allow_unprotected_replay=False, now_ms=None,
+) -> chatly.ChatlySignatureResult
+```
+
+| `surface`                 | header                                                | signed string                   | `t` unit |
+| ------------------------- | ----------------------------------------------------- | ------------------------------- | -------- |
+| `unified_v2`              | `x-chatly-signature-v2: t=…,v1=…`                     | `<t>.<METHOD>.<path>.<rawBody>` | seconds  |
+| `agent_delivery`          | `x-chatly-signature: t=…,v1=…`                        | `<t>.<rawBody>`                 | seconds  |
+| `event_webhook`           | `x-livechat-signature: t=…,v1=…`                      | `<t>.<rawBody>`                 | seconds  |
+| `ai_tool_call`            | `x-chatly-signature: t=…,v1=…`                        | `<t>.<METHOD>.<path>.<rawBody>` | seconds  |
+| `canvas_step`             | `x-chatly-canvas-signature: sha256=…` + `-ts`         | `<ts>.<rawBody>`                | **ms**   |
+| `customer_card`           | `x-chatly-signature: sha256=…` + `x-chatly-timestamp` | `<ts>.<rawBody>`                | **ms**   |
+| `workflow_webhook`        | `x-chatly-signature-v2: t=…,v1=…`                     | `<t>.<rawBody>` (or the target) | seconds  |
+| `workflow_webhook_legacy` | `x-chatly-signature: sha256=…`                        | `<rawBody>` — no timestamp      | n/a      |
+
+The same table is `chatly.CHATLY_SIGNATURE_SURFACES`, as data.
+
+- **The result.** `result.ok`; on success `result.timestamp_ms` (always
+  milliseconds, `None` on `workflow_webhook_legacy`), `result.base`
+  (`"body"`, `"target"` or `"body_only"`) and `result.secret_index`; on
+  failure `result.reason` — one of the eleven stable strings in
+  `chatly.CHATLY_SIGNATURE_FAILURES`, safe to branch on — and
+  `result.message`, a sentence written to be logged. The result is truthy
+  exactly when `ok` is, so `if not chatly.verify_chatly_signature(...)`
+  does what it looks like it does.
+- **The unified v2 header.** Every surface is moving to
+  `x-chatly-signature-v2` over `<t>.<METHOD>.<path>.<rawBody>`, sent beside
+  its legacy header. With the default `v2="prefer"`, passing `method` and
+  `path` means you verify v2 automatically the day it appears, and the
+  legacy header until then; `result.surface` reads `"unified_v2"` when it
+  did. Once v2 is chosen a bad v2 digest is refused — there is no fallback
+  to the legacy header. `v2="require"` refuses a request without v2;
+  `v2="ignore"` verifies only the surface's own header.
+- **Key rotation.** Pass a list of secrets; `secret_index` says which one
+  verified, indexing the list _you_ passed (empty strings are skipped but
+  still counted). A header carrying several `v1=` digests verifies if any
+  one matches.
+- **Refused, not guessed.** A signature header that arrives twice (two
+  values, or two casings of the name) is `duplicate_signature_header` — a
+  proxy added one, and picking either would be a guess.
+- **`workflow_webhook_legacy`** signs no timestamp, so a captured request
+  verifies forever. It is refused as `replay_unprotected` unless you pass
+  `allow_unprotected_replay=True`; verify the same call's v2 header as
+  `workflow_webhook` instead.
+- `tolerance_seconds` is seconds either side, whatever the surface's unit,
+  default 300; exactly 300 seconds of drift is accepted.
+- Like `verify_webhook_signature`, it **never raises** — not for a parsed
+  `dict` body, `None` headers, `secret=None`, a non-string header value, or
+  an unknown surface.
+
 ## Identity verification (`identity_hash`)
 
 If your workspace turns on widget identity verification, the widget must
