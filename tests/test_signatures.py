@@ -34,7 +34,13 @@ CORPUS_PATH = Path(__file__).resolve().parent / "signature_vectors.json"
 
 #: A floor, not the count: a loader that silently finds zero vectors would
 #: otherwise pass by checking nothing. Raise it when the corpus grows.
-MIN_VECTORS = 59
+#:
+#: 59 -> 61 on 2026-10-16. It said "raise it when the corpus grows" and the
+#: corpus had grown to 61, so this was blind to exactly the two newest
+#: vectors — the ones a fresh port is most likely to mis-handle. Go, Rust,
+#: Java and .NET already floored at 61; these three lagged, which made the
+#: strictness of the check depend on which language you read.
+MIN_VECTORS = 61
 
 
 def _load_vectors() -> List[Dict[str, Any]]:

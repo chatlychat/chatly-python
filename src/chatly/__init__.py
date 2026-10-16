@@ -26,6 +26,9 @@ What is in this package:
 * :func:`verify_chatly_signature` — verify ANY signed request Chatly sends
   (eight surfaces, the unified v2 header, key rotation), with a reason on
   every refusal rather than a bare ``False``.
+* :func:`sign_chatly_v2` — the other direction, for YOUR tests: mint the
+  ``x-chatly-signature-v2`` value Chatly would send, instead of re-deriving
+  the base string by hand in a test that then agrees with its own mistake.
 * :func:`identity_hash` — the backend half of widget identity verification.
 * A typed error per HTTP failure mode; see :mod:`chatly.errors`.
 * :class:`Page` and the ``iter_*`` generators for cursor pagination.
@@ -62,6 +65,11 @@ from .errors import (
 from .identity import identity_hash
 from .pagination import Page, iter_items, iter_pages, page_from_payload
 from .retry import NO_RETRIES, RetryPolicy
+from .signature_mint import (
+    CHATLY_V2_MINT_BASES,
+    chatly_v2_base_string,
+    sign_chatly_v2,
+)
 from .signatures import (
     CHATLY_SIGNATURE_FAILURES,
     CHATLY_SIGNATURE_SURFACES,
@@ -95,6 +103,9 @@ __all__ = [
     "CHATLY_SIGNATURE_SURFACES",
     "CHATLY_SIGNATURE_TOLERANCE_SECONDS",
     "CHATLY_V2_SIGNATURE_HEADER",
+    "sign_chatly_v2",
+    "chatly_v2_base_string",
+    "CHATLY_V2_MINT_BASES",
     # errors
     "APIError",
     "AuthenticationError",

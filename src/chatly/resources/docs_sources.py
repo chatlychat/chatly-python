@@ -56,9 +56,9 @@ class DocsSources(Resource):
     def list(self) -> List[JsonDict]:
         """Every connected source, with live counts. A bare list.
 
-        **This is the only route that computes ``articleCount`` and
-        ``staleCount``** — :meth:`update` returns zeros for both. Read them
-        from here.
+        ``articleCount`` and ``staleCount`` are computed here — and, since
+        2026-10-16, by :meth:`update` as well. Only :meth:`create` answers 0
+        for both, because a source connected a moment ago has no articles.
 
         No token is ever returned, on this or any other route here.
         """
@@ -194,9 +194,11 @@ class DocsSources(Resource):
         refused and the working one is left in place. Sending a ``token``, or
         setting ``status="active"``, also clears ``lastError``.
 
-        **``articleCount`` and ``staleCount`` in this response are always
-        0.** They are placeholders, not data — only :meth:`list` computes
-        them. Re-read from there if a UI shows them.
+        **``articleCount`` and ``staleCount`` in this response are the real
+        counts**, read alongside the write. They were hardcoded zeros until
+        2026-10-16, so renaming a source holding 1,200 articles answered
+        ``articleCount: 0``; a UI that re-renders from this response no longer
+        has to re-read from :meth:`list`.
 
         ``baseUrl`` is merged into the stored configuration rather than
         replacing it. A malformed id is a clean 400 here (this namespace
