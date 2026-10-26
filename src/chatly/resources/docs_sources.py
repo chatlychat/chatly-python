@@ -12,7 +12,18 @@ from ._base import JsonDict, Resource, as_list
 #:
 #: ``website`` is the sitemap crawler, and it — like Discourse's public
 #: categories — needs no token, which is why an empty ``token`` is legal.
-DOCS_PROVIDERS = ("gitbook", "forumulate", "discourse", "readme", "website")
+DOCS_PROVIDERS = (
+    "gitbook",
+    "forumulate",
+    "discourse",
+    "readme",
+    "website",
+    "notion",
+    "confluence",
+    "zendesk",
+    "intercom",
+    "github",
+)
 
 #: Values of a source's ``syncStatus``.
 #:

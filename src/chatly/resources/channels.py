@@ -61,9 +61,17 @@ class Channels(Resource):
       empty list is invisible in JSON.
 
     * **``embed``** (``None`` for non-``web``) carries ``loaderUrl``,
-      ``scriptOrigin``, ``connectOrigins``, ``initGlobal``, ``snippet`` and
-      ``contentSecurityPolicy: {"scriptSrc", "connectSrc"}`` — everything
-      needed to install the widget and write a CSP for it.
+      ``scriptOrigin``, ``connectOrigins``, ``uploadOrigin``, ``fileOrigin``,
+      ``deprecatedFileOrigins``, ``initGlobal``, ``snippet`` and
+      ``contentSecurityPolicy: {"scriptSrc", "connectSrc", "imgSrc",
+      "mediaSrc"}`` — everything needed to install the widget and write a CSP
+      for it. This list said ``{"scriptSrc", "connectSrc"}`` while the server
+      had been returning four keys, which is the direction of drift that
+      matters: a caller trusting it writes a CSP with no ``imgSrc`` and every
+      attachment silently fails to render. ``deprecatedFileOrigins`` carries
+      file hosts being retired and is ``[]`` normally — put it in ``imgSrc``
+      beside ``fileOrigin``, because objects uploaded before a host moved are
+      still served from the old one.
 
     ``type`` on a read is one of ``web``, ``email``, ``whatsapp``,
     ``messenger``, ``instagram``, ``sms``, ``voice``, ``api``, ``telegram``,
